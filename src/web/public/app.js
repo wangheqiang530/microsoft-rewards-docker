@@ -3059,7 +3059,7 @@ let taskRunning = false;
 function refreshVersionPillTooltip() {
   const pill = document.getElementById('version-status-pill');
   if (!pill) return;
-  const current = updateInfo?.currentVersion || '1.10.8';
+  const current = updateInfo?.currentVersion || '1.10.9';
   const statusLine = taskRunning
     ? '🟦 系统状态：正在执行自动化任务打卡中…'
     : '🟢 系统状态：后台定时就绪中';
@@ -3114,8 +3114,8 @@ async function handleVersionCheckClick() {
     openEpicActionModal(
       '版本检查',
       failed
-        ? `当前运行版本 v${updateInfo?.currentVersion || '1.10.8'}，但无法连接 GitHub 检查更新。`
-        : `当前运行版本 v${updateInfo?.currentVersion || '1.10.8'} 已是最新版本。`,
+        ? `当前运行版本 v${updateInfo?.currentVersion || '1.10.9'}，但无法连接 GitHub 检查更新。`
+        : `当前运行版本 v${updateInfo?.currentVersion || '1.10.9'} 已是最新版本。`,
       ['获取远端版本', '比较版本号', failed ? '检查失败' : '确认无需更新'],
       3
     );
@@ -4134,6 +4134,7 @@ function formatPunchCardTooltip(t) {
     const TASK_PRIORITY = {
       search: 10,
       dailySet: 20,
+      appPromotions: 25,
       sign: 30,
       read: 40,
       promos: 50,
@@ -4206,6 +4207,14 @@ function formatPunchCardTooltip(t) {
     if (key === 'dailySet') {
       const dsStreak = stats.streaks?.dailyset;
       extraStreakHtml = render7DayStreakTrack(dsStreak, stats.streakDays, isDone, '每日连续打卡活动');
+    }
+
+    if (key === 'appPromotions') {
+      displayName = '移动端每日活动';
+      pointsBadge = Number(t.max || 0) > 0
+        ? (isDone ? `+${t.points || 0} 积分` : `${t.max} 项待处理`)
+        : '等待同步';
+      if (t.statusMessage) subtext = `${subtext} · ${t.statusMessage}`;
     }
 
     // 3. 特殊活动：官网 points 为 0，但完成后有固定奖励。
@@ -5563,6 +5572,7 @@ function populateSettingsForm() {
 
   // 任务
   document.getElementById('cfg-task-sign').checked = c.tasks?.sign !== false;
+  document.getElementById('cfg-task-app-promotions').checked = c.tasks?.appPromotions !== false;
   document.getElementById('cfg-task-read').checked = c.tasks?.read !== false;
   document.getElementById('cfg-task-search').checked = c.tasks?.search !== false;
   document.getElementById('cfg-task-promos').checked = c.tasks?.promos !== false;
@@ -5775,6 +5785,7 @@ async function saveSettingsFromModal() {
     },
     tasks: {
       sign: document.getElementById('cfg-task-sign').checked,
+      appPromotions: document.getElementById('cfg-task-app-promotions').checked,
       read: document.getElementById('cfg-task-read').checked,
       search: document.getElementById('cfg-task-search').checked,
       promos: document.getElementById('cfg-task-promos').checked,

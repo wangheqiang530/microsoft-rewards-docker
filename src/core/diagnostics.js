@@ -278,6 +278,7 @@ function buildConfigSummary(config = {}) {
   return {
     tasks: {
       sign: config.tasks?.sign !== false,
+      appPromotions: config.tasks?.appPromotions !== false,
       read: config.tasks?.read !== false,
       search: config.tasks?.search !== false,
       promos: config.tasks?.promos !== false,

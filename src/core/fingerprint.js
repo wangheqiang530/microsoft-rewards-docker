@@ -42,8 +42,11 @@ export const PC_USER_AGENT =
 export const MOBILE_USER_AGENT =
   'Mozilla/5.0 (Linux; Android 16; Redmi K20 Pro Build/BP4A.251205.006; ) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/144.0.7559.132 Mobile Safari/537.36 EdgA/131.0.0.0';
 
+export const APP_VERSION = '34.5.450113001';
+export const APP_ID = `SAAndroid/${APP_VERSION}`;
+
 export const APP_USER_AGENT =
-  'Mozilla/5.0 (Linux; Android 16; Redmi K20 Pro Build/BP4A.251205.006; ) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/144.0.7559.132 Mobile Safari/537.36 BingSapphire/32.6.2110003560';
+  `Mozilla/5.0 (Linux; Android 16; Redmi K20 Pro Build/BP4A.251205.006; ) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/144.0.7559.132 Mobile Safari/537.36 BingSapphire/${APP_VERSION}`;
 
 /** 桌面奖励客户端 UA */
 export const DESKTOP_APP_USER_AGENT =

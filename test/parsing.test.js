@@ -199,10 +199,15 @@ test('discoverCards 给卡片打上分类，供独立开关过滤', async () => 
 test('discoverCards 遇到瞬时空页会自动重试并恢复活动卡片', async () => {
   const origRequest = networkClient.request;
   let requests = 0;
+  let earnRequests = 0;
   const retries = [];
-  networkClient.request = async () => {
+  networkClient.request = async ({ url }) => {
     requests++;
-    if (requests === 1) return '<html><body>loading</body></html>';
+    if (String(url).includes('/api/getuserinfo')) {
+      return { dashboard: { dailySetPromotions: {} } };
+    }
+    earnRequests++;
+    if (earnRequests === 1) return '<html><body>loading</body></html>';
     return `
   <script>self.__next_f.push([1,"a:{\\"offerId\\":\\"Gamification_DailySet_ZHCN_20261015_Child1\\",\\"hash\\":\\"h1\\",\\"points\\":10,\\"title\\":\\"每日活动\\"}"])</script>
   <script>self.__next_f.push([1,"b:{\\"offerId\\":\\"ZHstar_Rewards_DailyGlobalOffer_Evergreen_Monday\\",\\"hash\\":\\"h2\\",\\"points\\":5,\\"title\\":\\"拼图\\"}"])</script>
@@ -215,10 +220,74 @@ test('discoverCards 遇到瞬时空页会自动重试并恢复活动卡片', asy
       retryDelaysMs: [0],
       onRetry: event => retries.push(event)
     });
-    assert.equal(requests, 2);
+    assert.equal(earnRequests, 2);
+    assert.equal(requests, 4);
     assert.equal(cards.length, 2);
     assert.equal(retries.length, 1);
   } finally {
     networkClient.request = origRequest;
+  }
+});
+
+test('discoverCards 从 Dashboard API 补全 /earn 缺失的 Daily Set 卡片', async () => {
+  const origRequest = networkClient.request;
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  networkClient.request = async ({ url }) => {
+    if (String(url).includes('/api/getuserinfo')) {
+      return {
+        dashboard: {
+          dailySetPromotions: {
+            [todayKey]: [{
+              offerId: 'DailySet_App_Search_1',
+              title: 'Upcoming live music events',
+              promotionType: 'search',
+              destinationUrl: 'https://www.bing.com/search?q=music',
+              pointProgress: 0,
+              pointProgressMax: 10
+            }]
+          }
+        }
+      };
+    }
+    return `
+  <script>self.__next_f.push([1,"a:{\\"offerId\\":\\"DailySet_App_Search_1\\",\\"hash\\":\\"h1\\",\\"points\\":10,\\"title\\":\\"Upcoming live music events\\"}"])</script>
+    `;
+  };
+  try {
+    const cards = await rewardsApi.discoverCards();
+    const matches = cards.filter(card => card.offerId === 'DailySet_App_Search_1');
+    assert.equal(matches.length, 1);
+    const dailySet = matches[0];
+    assert.ok(dailySet);
+    assert.equal(dailySet.category, 'dailyset');
+    assert.equal(dailySet.kind, 'explore_search');
+    assert.equal(dailySet.points, 10);
+    assert.equal(dailySet.hash, 'h1');
+  } finally {
+    networkClient.request = origRequest;
+  }
+});
+
+test('无 hash 的 Daily Set 链接卡片通过目标链接上报', async () => {
+  const original = rewardsApi.reportDailyActivity;
+  let reportedUrl = '';
+  rewardsApi.reportDailyActivity = async url => {
+    reportedUrl = url;
+    return true;
+  };
+  try {
+    const claimed = await rewardsApi.claimCard({
+      offerId: 'DailySet_App_Search_1',
+      title: 'Upcoming live music events',
+      hash: '',
+      destination: 'https://www.bing.com/search?q=music',
+      url: 'https://rewards.bing.com/dashboard',
+      kind: 'explore_search'
+    });
+    assert.equal(claimed, true);
+    assert.equal(reportedUrl, 'https://www.bing.com/search?q=music');
+  } finally {
+    rewardsApi.reportDailyActivity = original;
   }
 });

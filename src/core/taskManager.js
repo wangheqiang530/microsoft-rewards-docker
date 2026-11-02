@@ -22,6 +22,11 @@ import {
   findSpecialActivity,
   isSpecialActivityAttemptedToday
 } from './specialActivities.js';
+import {
+  getAppCheckInStatusFromPromotions,
+  getPendingSapphireAppPromotions,
+  isSapphireAppPromotion
+} from './promotionSources.js';
 import { normalizeAccountRunHours } from './scheduleWindow.js';
 import { DATA_DIR, writeFileAtomic } from '../fsUtil.js';
 
@@ -75,6 +80,7 @@ export class TaskManager {
       lastRunAt: 0,
       tasks: {
         sign: { name: "移动端签到", progress: 0, max: 1, points: 0, unit: "次", icon: "📱", done: false },
+        appPromotions: { name: "移动端每日活动", progress: 0, max: 0, points: 0, unit: "项", icon: "📱", done: false, available: false, statusMessage: "等待移动端活动同步" },
         read: { name: "新闻资讯自动阅读", progress: 0, max: 30, points: 0, unit: "篇", icon: "📖", done: false },
         search: { name: "必应 PC 搜索任务", progress: 0, max: 0, points: 0, unit: "分", icon: "🔍", done: false, searchTier: null, statusMessage: "等待官网同步会员等级配额" },
         dailySet: { name: "每日活动集 (Daily Set)", progress: 0, max: 3, points: 0, unit: "个", icon: "📅", done: false },
@@ -809,6 +815,58 @@ export class TaskManager {
           });
         }
 
+        // 2.1 同步移动端 DAPI 的 sapphire 每日活动与连签状态。
+        // 新版 App 的这三张任务不保证出现在 Web /earn 或 Dashboard streak 中。
+        if (accCfg.refreshToken && mobileTrusted) {
+          const appPromotions = await rewardsApi.getAppPromotions().catch(() => null);
+          if (Array.isArray(appPromotions)) {
+            const dapiCheckIn = getAppCheckInStatusFromPromotions(appPromotions);
+            const currentAppStreak = info.streaks?.bingapp;
+            if (dapiCheckIn && (dapiCheckIn.isCurrentDayCompleted || !currentAppStreak?.isCurrentDayCompleted)) {
+              info.streaks = {
+                ...(info.streaks || {}),
+                bingapp: dapiCheckIn
+              };
+            }
+
+            const sapphirePromotions = appPromotions.filter(isSapphireAppPromotion);
+            const pendingAppPromotions = getPendingSapphireAppPromotions(sapphirePromotions);
+            const currentAppTask = accStats.tasks.appPromotions || {};
+            if (sapphirePromotions.length > 0) {
+              const completedPromotions = sapphirePromotions.filter(item => item.complete === true);
+              const completedPoints = completedPromotions.reduce(
+                (sum, item) => sum + Math.max(0, Number(item.max || 0)),
+                0
+              );
+              const allDone = pendingAppPromotions.length === 0;
+              accStats.tasks.appPromotions = this.mergeMonotonicTask(currentAppTask, {
+                ...currentAppTask,
+                name: '移动端每日活动',
+                progress: completedPromotions.length,
+                max: sapphirePromotions.length,
+                points: completedPoints,
+                unit: '项',
+                icon: '📱',
+                available: true,
+                done: allDone,
+                statusMessage: allDone
+                  ? '移动端每日活动已全部完成'
+                  : `待完成 ${pendingAppPromotions.length} 项`
+              });
+            } else if (Number(currentAppTask.max || 0) === 0) {
+              accStats.tasks.appPromotions = {
+                ...currentAppTask,
+                name: '移动端每日活动',
+                unit: '项',
+                icon: '📱',
+                available: false,
+                done: false,
+                statusMessage: '移动端未返回每日活动'
+              };
+            }
+          }
+        }
+
         // 3. 动态同步官方「任务」区全部打孔卡（自适应 1 个、2 个或多个）
         const hasOfficialQuests = Array.isArray(info.quests) && info.quests.length > 0;
         const questList = hasOfficialQuests
@@ -889,7 +947,7 @@ export class TaskManager {
           // 仅在明确获取到了官方确切的任务列表时，才移除下线活动；若未拿到列表则完整保留已有卡片
           if (hasOfficialQuests) {
             for (const key of Object.keys(accStats.tasks)) {
-              if (key !== 'sign' && key !== 'read' && key !== 'search' && key !== 'dailySet'
+              if (key !== 'sign' && key !== 'appPromotions' && key !== 'read' && key !== 'search' && key !== 'dailySet'
                 && key !== 'promos' && key !== 'browserExtension') {
                 if (!currentQuestKeys.has(key)) {
                   delete accStats.tasks[key];
@@ -1553,6 +1611,94 @@ export class TaskManager {
   }
 
   /**
+   * 执行移动端 DAPI 返回的 sapphire 每日活动。
+   * 这些任务通常不出现在 Web /earn 的 activityCards 中。
+   */
+  async runPendingAppPromotions(accCfg, options = {}) {
+    const maxItems = Math.max(1, Number(options.maxItems || 20));
+    const promotions = await rewardsApi.getAppPromotions();
+    const sapphirePromotions = promotions.filter(isSapphireAppPromotion);
+    const pending = getPendingSapphireAppPromotions(sapphirePromotions).slice(0, maxItems);
+    const details = [];
+    let completed = 0;
+    let points = 0;
+
+    if (pending.length === 0) {
+      const allDone = sapphirePromotions.length > 0
+        && sapphirePromotions.every(item => item.complete === true);
+      const currentTask = this.ensureAccountStats(accCfg.id).tasks?.appPromotions || {};
+      this.ensureAccountStats(accCfg.id).tasks.appPromotions = this.mergeMonotonicTask(currentTask, {
+        name: '移动端每日活动',
+        progress: sapphirePromotions.filter(item => item.complete === true).length,
+        max: sapphirePromotions.length,
+        points: sapphirePromotions
+          .filter(item => item.complete === true)
+          .reduce((sum, item) => sum + Math.max(0, Number(item.max || 0)), 0),
+        unit: '项',
+        icon: '📱',
+        available: sapphirePromotions.length > 0,
+        done: allDone,
+        statusMessage: allDone ? '移动端每日活动已全部完成' : '移动端暂无待执行活动'
+      });
+      this.saveStats();
+      return {
+        attempted: 0,
+        completed: 0,
+        alreadyDone: allDone,
+        total: sapphirePromotions.length,
+        details
+      };
+    }
+
+    logger.log('📱', `移动端每日活动发现 ${pending.length} 项待完成`, '', accCfg.name);
+    for (const promotion of pending) {
+      const result = await rewardsApi.claimAppPromotion(promotion);
+      const ok = result?.success === true || result?.verified === true;
+      if (ok) {
+        completed++;
+        points += Math.max(0, Number(result.points || promotion.max || 0));
+        details.push(`${promotion.name || promotion.offerId} 已完成${result.points ? ` +${result.points} 积分` : ''}`);
+        logger.log('✅', `移动端每日活动已完成: ${promotion.name || promotion.offerId}`, '', accCfg.name);
+      } else {
+        details.push(`${promotion.name || promotion.offerId} 未确认完成${result?.error ? `：${result.error}` : ''}`);
+        logger.log('🟡', `移动端每日活动未确认: ${promotion.name || promotion.offerId}${result?.error ? ` (${result.error})` : ''}`, '', accCfg.name);
+      }
+      await rewardsApi.randomDelay(1200, 2400);
+    }
+
+    const afterPromotions = await rewardsApi.getAppPromotions().catch(() => promotions);
+    const afterSapphire = afterPromotions.filter(isSapphireAppPromotion);
+    const afterPending = getPendingSapphireAppPromotions(afterSapphire);
+    const doneItems = afterSapphire.filter(item => item.complete === true);
+    const allDone = afterSapphire.length > 0 && afterPending.length === 0;
+    const currentTask = this.ensureAccountStats(accCfg.id).tasks?.appPromotions || {};
+    this.ensureAccountStats(accCfg.id).tasks.appPromotions = this.mergeMonotonicTask(currentTask, {
+      name: '移动端每日活动',
+      progress: doneItems.length,
+      max: afterSapphire.length,
+      points: doneItems.reduce((sum, item) => sum + Math.max(0, Number(item.max || 0)), 0),
+      unit: '项',
+      icon: '📱',
+      available: afterSapphire.length > 0,
+      done: allDone,
+      statusMessage: allDone
+        ? '移动端每日活动已全部完成'
+        : `待完成 ${afterPending.length} 项`
+    });
+    this.saveStats();
+
+    return {
+      attempted: pending.length,
+      completed,
+      points,
+      total: afterSapphire.length,
+      remaining: afterPending.length,
+      alreadyDone: allDone,
+      details
+    };
+  }
+
+  /**
    * WebUI 任务卡片点击执行：每次只执行该卡片对应的一次动作。
    * 支持 sign / read / search / 打孔卡类任务。
    */
@@ -1611,7 +1757,13 @@ export class TaskManager {
 
       if (taskKey === 'sign') {
         const info = await rewardsApi.getRewardsInfo(1).catch(() => null);
-        const appStatus = info?.streaks?.bingapp || await rewardsApi.getAppCheckInStatus().catch(() => null);
+        const webAppStatus = info?.streaks?.bingapp;
+        const dapiAppStatus = webAppStatus?.isCurrentDayCompleted
+          ? null
+          : await rewardsApi.getAppCheckInStatus({ allowWebFallback: false }).catch(() => null);
+        const appStatus = webAppStatus?.isCurrentDayCompleted
+          ? webAppStatus
+          : (dapiAppStatus || webAppStatus);
         if (appStatus?.isCurrentDayCompleted) {
           result.alreadyDone = true;
           result.message = `今日已签到（官网 App 连签 ${appStatus.completedDays || 0}/7 天）`;
@@ -1647,8 +1799,10 @@ export class TaskManager {
 
           await this.syncAccountOfficialStatus(acc, { owned: true });
           const finalInfo = await rewardsApi.getRewardsInfo(1).catch(() => null);
-          const finalApp = finalInfo?.streaks?.bingapp;
+          const finalApp = finalInfo?.streaks?.bingapp
+            || await rewardsApi.getAppCheckInStatus({ allowWebFallback: false }).catch(() => null);
           if (finalApp?.isCurrentDayCompleted) {
+            result.hadFailure = false;
             result.details.push(`官网 App 连签已确认：${finalApp.completedDays || 0}/7 天`);
           } else if (finalApp && !binding.mismatch && binding.tokenOk) {
             result.hadFailure = true;
@@ -1658,6 +1812,28 @@ export class TaskManager {
             ? '签到部分完成，请查看明细'
             : (points > 0 ? `签到完成，本次获得 +${points} 积分` : '签到请求已完成');
         }
+      } else if (taskKey === 'appPromotions') {
+        const info = await rewardsApi.getRewardsInfo(1).catch(() => null);
+        const webBalance = toOptionalFiniteNumber(info?.webBalance);
+        const binding = await this.checkMobileAccountBinding(acc, webBalance);
+        if (binding.mismatch) throw new Error(binding.message);
+        if (!binding.tokenOk) throw new Error(binding.message);
+        if (binding.verified === false) throw new Error(binding.message);
+
+        const appResult = await this.runPendingAppPromotions(acc);
+        result.details.push(...appResult.details);
+        result.alreadyDone = appResult.alreadyDone === true;
+        result.hadFailure = appResult.attempted > 0 && appResult.completed < appResult.attempted;
+        if (appResult.attempted === 0) {
+          result.message = appResult.alreadyDone
+            ? '移动端每日活动已全部完成'
+            : '当前没有可执行的移动端每日活动';
+        } else if (appResult.completed > 0) {
+          result.message = `移动端每日活动已推进 ${appResult.completed}/${appResult.attempted} 项`;
+        } else {
+          result.message = '移动端每日活动已提交，但 DAPI 尚未确认进度';
+        }
+        await this.syncAccountOfficialStatus(acc, { owned: true });
       } else if (taskKey === 'read') {
         const info = await rewardsApi.getRewardsInfo(1).catch(() => null);
         const webBalance = toOptionalFiniteNumber(info?.webBalance);
@@ -1982,7 +2158,9 @@ export class TaskManager {
 
     // 2. 检查是否所有任务今日均已达标完成
     const taskValues = Object.values(accStats.tasks || {});
-    const isAllDone = taskValues.length > 0 && taskValues.every(t => t.done || (t.max > 0 && t.progress >= t.max));
+    const isAllDone = taskValues.length > 0 && taskValues.every(t => (
+      t.available === false || t.done || (t.max > 0 && t.progress >= t.max)
+    ));
     if (isAllDone && !globalCfg.tasks?.keepRunning) {
       logger.log('💤', `账号 [${accountName}] 今日所有打卡任务已全部满额达成，无需重复执行，直接结束！`, '', accountName);
       return;
@@ -2102,6 +2280,21 @@ export class TaskManager {
         const finalProg = finalRead?.progress || (cur + okCount * 3);
         this.updateTask('read', { progress: finalProg, max, points: finalProg, done: finalProg >= max }, accountId);
         logger.addTimeline(accountName, `新闻阅读完成 ${finalProg}/${max}`);
+      }
+    }
+
+    if (!this.running || this.isAccountPaused(accountId)) return;
+
+    // 2.5 移动端 DAPI 每日活动（新版 App 的三张 +10 卡片）。
+    const wantAppPromotions = globalCfg.tasks?.appPromotions !== false;
+    if (wantAppPromotions && tokenOk && this.running) {
+      try {
+        const appResult = await this.runPendingAppPromotions(accCfg);
+        if (appResult.attempted > 0) {
+          logger.addTimeline(accountName, `移动端每日活动推进 ${appResult.completed}/${appResult.attempted} 项`);
+        }
+      } catch (e) {
+        logger.log('🟡', `移动端每日活动执行异常: ${e.message}`, '', accountName);
       }
     }
 

@@ -87,7 +87,10 @@ test('任务区使用移动端签到与三组 7 日连续进度', () => {
   assert.match(appJs, /必应搜索连续打卡/);
   assert.match(appJs, /每日连续打卡活动/);
   assert.match(appJs, /移动端连续打卡/);
-  assert.match(appJs, /TASK_PRIORITY[\s\S]*search: 10[\s\S]*dailySet: 20[\s\S]*sign: 30/);
+  assert.match(appJs, /TASK_PRIORITY[\s\S]*search: 10[\s\S]*dailySet: 20[\s\S]*appPromotions: 25[\s\S]*sign: 30/);
+  assert.match(indexHtml, /id="cfg-task-app-promotions"[^>]*> 移动端每日活动/);
+  assert.match(appJs, /tasks\?\.appPromotions !== false/);
+  assert.match(appJs, /appPromotions: document\.getElementById\('cfg-task-app-promotions'\)\.checked/);
 });
 
 test('液态玻璃视觉包含 WebGL2 背景、统一卡片材质与配置项', () => {

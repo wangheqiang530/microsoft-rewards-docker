@@ -14,9 +14,17 @@ import {
   extractSpecialActivitiesFromHtml
 } from './specialActivities.js';
 import {
+  buildAppActivityPayload,
+  extractDailySetCardsFromDashboard,
+  getAppCheckInStatusFromPromotions,
+  isAppReadPromotion,
+  normalizeAppPromotions
+} from './promotionSources.js';
+import {
   PC_USER_AGENT,
   MOBILE_USER_AGENT,
   APP_USER_AGENT,
+  APP_ID,
   DESKTOP_APP_USER_AGENT,
   pcPageHeaders,
   pcXhrHeaders
@@ -36,7 +44,7 @@ export const DESKTOP_APP_HEADERS = {
 };
 
 export const APP_CONFIG = {
-  rewardsAppId: 'SAAndroid/32.6.2110003560',
+  rewardsAppId: APP_ID,
   channel: 'SAAndroid',
   offerIds: {
     dailyCheckIn: 'Gamification_Sapphire_DailyCheckIn',
@@ -639,7 +647,7 @@ export class RewardsApi {
   /**
    * 获取当前总积分余额
    */
-  async getWebBalance() {
+  async getRewardsDashboardData() {
     try {
       const res = await networkClient.request({
         url: `https://rewards.bing.com/api/getuserinfo?type=1&X-Requested-With=XMLHttpRequest&_=${Date.now()}`,
@@ -650,6 +658,14 @@ export class RewardsApi {
         }
       });
       const data = typeof res === 'string' && this.isJSON(res) ? JSON.parse(res) : res;
+      return data && typeof data === 'object' ? data : null;
+    } catch {}
+    return null;
+  }
+
+  async getWebBalance() {
+    try {
+      const data = await this.getRewardsDashboardData();
       const balance = data?.dashboard?.availablePoints ?? data?.dashboard?.userStatus?.availablePoints ?? data?.balance;
       if (balance !== undefined && balance !== null && balance !== '') {
         return Number(balance);
@@ -688,6 +704,104 @@ export class RewardsApi {
   async getMobileBalance() {
     const snapshot = await this.getMobileSnapshot();
     return toOptionalFiniteNumber(snapshot?.balance);
+  }
+
+  async getAppDashboardData() {
+    try {
+      const res = await this.withTokenRetry(token => networkClient.request({
+        url: 'https://prod.rewardsplatform.microsoft.com/dapi/me?channel=SAAndroid&options=613',
+        headers: {
+          'content-type': 'application/json; charset=UTF-8',
+          'user-agent': USER_AGENTS.app,
+          'authorization': `Bearer ${token}`,
+          'x-rewards-appid': APP_CONFIG.rewardsAppId,
+          'x-rewards-ismobile': 'true',
+          'x-rewards-country': 'cn',
+          'x-rewards-language': 'zh'
+        }
+      }));
+      const data = typeof res === 'string' && this.isJSON(res) ? JSON.parse(res) : res;
+      return data?.response ? data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async getAppPromotions() {
+    const data = await this.getAppDashboardData();
+    return normalizeAppPromotions(data);
+  }
+
+  /**
+   * 上报移动端 sapphire 每日活动，并回读 DAPI 验证进度或完成状态。
+   */
+  async claimAppPromotion(promotion = {}) {
+    const offerId = String(promotion.offerId || '').trim();
+    if (!offerId) {
+      return { success: false, verified: false, error: '缺少 App 活动 offerId' };
+    }
+    const region = 'cn';
+    try {
+      const res = await this.withTokenRetry(token => networkClient.request({
+        method: 'POST',
+        url: 'https://prod.rewardsplatform.microsoft.com/dapi/me/activities',
+        headers: {
+          'content-type': 'application/json; charset=UTF-8',
+          'user-agent': USER_AGENTS.app,
+          'authorization': `Bearer ${token}`,
+          'x-rewards-appid': APP_CONFIG.rewardsAppId,
+          'x-rewards-ismobile': 'true',
+          'x-rewards-country': region,
+          'x-rewards-language': 'zh'
+        },
+        data: JSON.stringify(buildAppActivityPayload(offerId, {
+          id: this.getRandomUUID().slice(0, 32),
+          country: region,
+          channel: APP_CONFIG.channel
+        }))
+      }));
+      const data = typeof res === 'string' && this.isJSON(res) ? JSON.parse(res) : res;
+      const points = Number(data?.response?.activity?.p || data?.response?.activity?.points || 0);
+      const rawBalance = data?.response?.balance;
+      const balanceValue = rawBalance === undefined || rawBalance === null || rawBalance === ''
+        ? null
+        : Number(rawBalance);
+      const isDuplicate = !!data?.response?.isDuplicate;
+
+      let after = null;
+      let progressed = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await this.delay(attempt === 0 ? 1200 : 900);
+        const afterPromotions = await this.getAppPromotions();
+        after = afterPromotions.find(item => (
+          String(item.offerId || '').toLowerCase() === offerId.toLowerCase()
+        ));
+        progressed = !!after && (
+          after.complete === true
+          || after.progress > Number(promotion.progress || 0)
+        );
+        if (progressed || points > 0) break;
+      }
+      return {
+        success: points > 0 || isDuplicate || progressed,
+        points,
+        balance: Number.isFinite(balanceValue) ? balanceValue : null,
+        isDuplicate,
+        verified: progressed || points > 0,
+        before: promotion,
+        after
+      };
+    } catch (e) {
+      logger.log('🟡', `App 每日活动上报失败: ${e.message}`);
+      return {
+        success: false,
+        verified: false,
+        points: 0,
+        balance: null,
+        isDuplicate: false,
+        error: e.message
+      };
+    }
   }
 
   async getBalance() {
@@ -1116,36 +1230,49 @@ export class RewardsApi {
    * 签到接口在「已签过」和「没签成」两种情况下都可能返回 0 积分，
    * 单看返回值分不清，所以这里直接读官网 earn 页里的 streak 模型做判定。
    */
-  async getAppCheckInStatus() {
-    // 当前官网把权威连签状态放在 /dashboard；/earn 的旧 Flight 模型经常是 0/7。
-    // 必须先走 getRewardsInfo 的合并解析，否则同一次执行里会出现前后状态互相矛盾。
-    try {
-      const info = await this.getRewardsInfo(1);
-      const streak = info?.streaks?.bingapp;
-      if (streak) return streak;
-    } catch {}
+  async getAppCheckInStatus(options = {}) {
+    let webStatus = null;
+    if (options.allowWebFallback !== false) {
+      // 当前官网把权威连签状态放在 /dashboard；/earn 的旧 Flight 模型经常是 0/7。
+      // 必须先走 getRewardsInfo 的合并解析，否则同一次执行里会出现前后状态互相矛盾。
+      try {
+        const info = await this.getRewardsInfo(1);
+        const streak = info?.streaks?.bingapp;
+        if (streak) webStatus = streak;
+      } catch {}
 
-    try {
-      const html = await networkClient.request({
-        url: 'https://rewards.bing.com/earn',
-        headers: pcPageHeaders()
-      });
-      if (!html) return null;
-      const clean = String(html).replace(/\\"/g, '"');
-      const key = '"partner":"bingapp"';
-      let idx = -1;
-      // partner 会出现两次（埋点 data 与真正的 streak 模型），只有模型那段带 completedDays
-      while ((idx = clean.indexOf(key, idx + 1)) !== -1) {
-        const win = clean.slice(Math.max(0, idx - 1600), idx + 300);
-        if (!/"completedDays":\d+/.test(win)) continue;
-        return {
-          isCurrentDayCompleted: /"isCurrentDayCompleted":true/.test(win),
-          completedDays: Number((win.match(/"completedDays":(\d+)/) || [])[1] || 0),
-          currentDay: Number((win.match(/"currentDay":(\d+)/) || [])[1] || 0)
-        };
+      if (!webStatus) {
+        try {
+          const html = await networkClient.request({
+            url: 'https://rewards.bing.com/earn',
+            headers: pcPageHeaders()
+          });
+          if (html) {
+            const clean = String(html).replace(/\\"/g, '"');
+            const key = '"partner":"bingapp"';
+            let idx = -1;
+            // partner 会出现两次（埋点 data 与真正的 streak 模型），只有模型那段带 completedDays
+            while ((idx = clean.indexOf(key, idx + 1)) !== -1) {
+              const win = clean.slice(Math.max(0, idx - 1600), idx + 300);
+              if (!/"completedDays":\d+/.test(win)) continue;
+              webStatus = {
+                isCurrentDayCompleted: /"isCurrentDayCompleted":true/.test(win),
+                completedDays: Number((win.match(/"completedDays":(\d+)/) || [])[1] || 0),
+                currentDay: Number((win.match(/"currentDay":(\d+)/) || [])[1] || 0)
+              };
+              break;
+            }
+          }
+        } catch {}
       }
-    } catch {}
-    return null;
+      if (webStatus?.isCurrentDayCompleted === true) return webStatus;
+    }
+
+    // 新版 App 的连签状态可能只存在于 DAPI promotion，Web Flight 里没有模型。
+    const promotions = await this.getAppPromotions().catch(() => []);
+    const dapiStatus = getAppCheckInStatusFromPromotions(promotions);
+    if (dapiStatus?.isCurrentDayCompleted === true) return dapiStatus;
+    return dapiStatus || webStatus || null;
   }
 
   /**
@@ -1283,28 +1410,12 @@ export class RewardsApi {
    */
   async getReadProgress() {
     try {
-      const res = await this.withTokenRetry(token => networkClient.request({
-        url: 'https://prod.rewardsplatform.microsoft.com/dapi/me?channel=SAAndroid&options=613',
-        headers: {
-          'content-type': 'application/json; charset=UTF-8',
-          'user-agent': USER_AGENTS.app,
-          'authorization': `Bearer ${token}`,
-          'x-rewards-appid': APP_CONFIG.rewardsAppId,
-          'x-rewards-ismobile': 'true',
-          'x-rewards-country': 'cn',
-          'x-rewards-language': 'zh'
-        }
-      }));
-
-      const data = typeof res === 'string' && this.isJSON(res) ? JSON.parse(res) : res;
-      const promos = data?.response?.promotions || [];
-      const readOfferId = APP_CONFIG.offerIds.readArticle;
-      const task = promos.find(x => x.attributes?.offerid === readOfferId);
-      if (task?.attributes) {
-        const progress = parseInt(task.attributes.progress) || 0;
-        const max = parseInt(task.attributes.max) || 30;
-        return { progress, max };
-      }
+      const promotions = await this.getAppPromotions();
+      const task = promotions.find(isAppReadPromotion);
+      if (task) return {
+        progress: Math.max(0, Number(task.progress || 0)),
+        max: Math.max(1, Number(task.max || 30))
+      };
     } catch (e) {
       logger.log('🔴', `阅读进度查询失败: ${e.message}`);
     }
@@ -1475,17 +1586,25 @@ export class RewardsApi {
 
   async discoverCardsOnce() {
     const cards = [];
-    const seenCardKeys = new Set();
+    const cardIndexByOfferId = new Map();
 
     const pushCard = (card) => {
-      if (!card || !card.offerId || !card.hash || card.points <= 0) return;
-      const key = `${card.offerId}:${card.hash}`;
-      if (seenCardKeys.has(key)) return;
+      if (!card || !card.offerId || (!card.hash && !card.destination) || card.points <= 0) return;
+      const existingIndex = cardIndexByOfferId.get(card.offerId);
+      if (existingIndex !== undefined) {
+        if (!cards[existingIndex].hash && card.hash) {
+          cards[existingIndex] = {
+            ...card,
+            category: card.category || cards[existingIndex].category
+          };
+        }
+        return;
+      }
       // 分类标记：供「每日活动集」「桌面端打孔卡」两个独立开关做过滤
       if (!card.category) {
         card.category = /dailyset/i.test(card.offerId) ? 'dailyset' : 'promo';
       }
-      seenCardKeys.add(key);
+      cardIndexByOfferId.set(card.offerId, cards.length);
       cards.push(card);
     };
 
@@ -1501,6 +1620,13 @@ export class RewardsApi {
     };
 
     try {
+      // Dashboard API 是 Daily Set 的主要来源。新版 /earn 经常只保留
+      // more activities，而今日三张 Daily Set 只出现在 dashboard.dailySetPromotions。
+      const dashboardData = await this.getRewardsDashboardData().catch(() => null);
+      for (const card of extractDailySetCardsFromDashboard(dashboardData)) {
+        pushCard(card);
+      }
+
       const html = await networkClient.request({
         url: 'https://rewards.bing.com/earn',
         headers: pcPageHeaders()
@@ -1670,75 +1796,77 @@ export class RewardsApi {
     const referer = card.url || 'https://rewards.bing.com/earn';
     let nextAction = this.cachedNextAction;
 
-    // 策略 1: Next.js Server Action
-    try {
-      let pageHtml = '';
-      if (!nextAction
-        || !this.cachedDeploymentId
-        || (card.deploymentId && card.deploymentId !== this.cachedDeploymentId)) {
-        pageHtml = await networkClient.request({
-          url,
-          headers: card.kind === 'desktop_app' ? DESKTOP_APP_HEADERS : pcPageHeaders()
-        }).catch(() => '');
-        this.getDeploymentId(pageHtml);
-        nextAction = await this.getNextActionHash(pageHtml, url);
-      }
-      const headers = {
-        ...(card.kind === 'desktop_app' ? DESKTOP_APP_HEADERS : {}),
-        'accept': 'text/x-component',
-        'content-type': 'text/plain;charset=UTF-8',
-        'next-action': nextAction,
-        'referer': referer,
-        'origin': 'https://rewards.bing.com'
-      };
-      if (card.parentQuestId) {
-        headers['next-router-state-tree'] = buildQuestRouterStateTree(card.parentQuestId);
-      }
-      if (this.cachedDeploymentId) {
-        headers['x-deployment-id'] = this.cachedDeploymentId;
-      }
-      const response = await networkClient.request({
-        method: 'POST',
-        url,
-        headers,
-        data: JSON.stringify([card.hash, 11, { offerid: card.offerId, isPromotional: '$undefined', timezoneOffset: '-480' }]),
-        returnResponse: true
-      });
-      this.lastCardReport = {
-        status: response?.status || null,
-        acknowledged: isServerActionAcknowledged(response?.data)
-      };
-      if (this.lastCardReport.acknowledged) {
-        return true;
-      }
-    } catch (e) {
-      if (e.message && e.message.includes('404')) {
-        try {
-          const earnHtml = await networkClient.request({ url: 'https://rewards.bing.com/earn' });
-          this.getDeploymentId(earnHtml);
-          nextAction = await this.getNextActionHash(earnHtml, 'https://rewards.bing.com/earn');
-          const retryResponse = await networkClient.request({
-            method: 'POST',
+    // 策略 1: Next.js Server Action（只适用于带 hash 的网页卡片）
+    if (card.hash) {
+      try {
+        let pageHtml = '';
+        if (!nextAction
+          || !this.cachedDeploymentId
+          || (card.deploymentId && card.deploymentId !== this.cachedDeploymentId)) {
+          pageHtml = await networkClient.request({
             url,
-            headers: {
-              ...(card.kind === 'desktop_app' ? DESKTOP_APP_HEADERS : {}),
-              accept: 'text/x-component',
-              'content-type': 'text/plain;charset=UTF-8',
-              'next-action': nextAction,
-              referer,
-              origin: 'https://rewards.bing.com',
-              ...(card.parentQuestId ? { 'next-router-state-tree': buildQuestRouterStateTree(card.parentQuestId) } : {}),
-              ...(this.cachedDeploymentId ? { 'x-deployment-id': this.cachedDeploymentId } : {})
-            },
-            data: JSON.stringify([card.hash, 11, { offerid: card.offerId, isPromotional: '$undefined', timezoneOffset: '-480' }]),
-            returnResponse: true
-          });
-          this.lastCardReport = {
-            status: retryResponse?.status || null,
-            acknowledged: isServerActionAcknowledged(retryResponse?.data)
-          };
-          if (this.lastCardReport.acknowledged) return true;
-        } catch {}
+            headers: card.kind === 'desktop_app' ? DESKTOP_APP_HEADERS : pcPageHeaders()
+          }).catch(() => '');
+          this.getDeploymentId(pageHtml);
+          nextAction = await this.getNextActionHash(pageHtml, url);
+        }
+        const headers = {
+          ...(card.kind === 'desktop_app' ? DESKTOP_APP_HEADERS : {}),
+          'accept': 'text/x-component',
+          'content-type': 'text/plain;charset=UTF-8',
+          'next-action': nextAction,
+          'referer': referer,
+          'origin': 'https://rewards.bing.com'
+        };
+        if (card.parentQuestId) {
+          headers['next-router-state-tree'] = buildQuestRouterStateTree(card.parentQuestId);
+        }
+        if (this.cachedDeploymentId) {
+          headers['x-deployment-id'] = this.cachedDeploymentId;
+        }
+        const response = await networkClient.request({
+          method: 'POST',
+          url,
+          headers,
+          data: JSON.stringify([card.hash, 11, { offerid: card.offerId, isPromotional: '$undefined', timezoneOffset: '-480' }]),
+          returnResponse: true
+        });
+        this.lastCardReport = {
+          status: response?.status || null,
+          acknowledged: isServerActionAcknowledged(response?.data)
+        };
+        if (this.lastCardReport.acknowledged) {
+          return true;
+        }
+      } catch (e) {
+        if (e.message && e.message.includes('404')) {
+          try {
+            const earnHtml = await networkClient.request({ url: 'https://rewards.bing.com/earn' });
+            this.getDeploymentId(earnHtml);
+            nextAction = await this.getNextActionHash(earnHtml, 'https://rewards.bing.com/earn');
+            const retryResponse = await networkClient.request({
+              method: 'POST',
+              url,
+              headers: {
+                ...(card.kind === 'desktop_app' ? DESKTOP_APP_HEADERS : {}),
+                accept: 'text/x-component',
+                'content-type': 'text/plain;charset=UTF-8',
+                'next-action': nextAction,
+                referer,
+                origin: 'https://rewards.bing.com',
+                ...(card.parentQuestId ? { 'next-router-state-tree': buildQuestRouterStateTree(card.parentQuestId) } : {}),
+                ...(this.cachedDeploymentId ? { 'x-deployment-id': this.cachedDeploymentId } : {})
+              },
+              data: JSON.stringify([card.hash, 11, { offerid: card.offerId, isPromotional: '$undefined', timezoneOffset: '-480' }]),
+              returnResponse: true
+            });
+            this.lastCardReport = {
+              status: retryResponse?.status || null,
+              acknowledged: isServerActionAcknowledged(retryResponse?.data)
+            };
+            if (this.lastCardReport.acknowledged) return true;
+          } catch {}
+        }
       }
     }
 
@@ -1748,8 +1876,7 @@ export class RewardsApi {
     // 策略 2: 每日活动目标链接搜索上报
     if (card.destination && card.destination.startsWith('http')) {
       try {
-        await this.reportDailyActivity(card.destination);
-        return true;
+        if (await this.reportDailyActivity(card.destination)) return true;
       } catch {}
     }
 

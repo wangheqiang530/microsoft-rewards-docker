@@ -61,6 +61,7 @@ const DEFAULT_CONFIG = {
   },
   tasks: {
     sign: true,
+    appPromotions: true,
     read: true,
     search: true,
     promos: true,

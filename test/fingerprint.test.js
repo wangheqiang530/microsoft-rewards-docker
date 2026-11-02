@@ -4,6 +4,9 @@ import {
   CHROME_MAJOR,
   CHROME_FULL,
   PC_USER_AGENT,
+  APP_ID,
+  APP_USER_AGENT,
+  APP_VERSION,
   SEC_CH_UA,
   PLATFORM,
   buildUserAgentMetadata,
@@ -23,6 +26,11 @@ test('UA 里的版本号与指纹常量一致', () => {
   // 同一个字符串里不允许出现两个不同的 Chrome 大版本
   const majors = [...PC_USER_AGENT.matchAll(/Chrome\/(\d+)/g)].map(m => m[1]);
   assert.equal(new Set(majors).size, 1, 'UA 内不允许出现多个不同的 Chrome 版本号');
+});
+
+test('Bing App UA 与 x-rewards-appid 使用同一版本', () => {
+  assert.equal(APP_ID, `SAAndroid/${APP_VERSION}`);
+  assert.ok(APP_USER_AGENT.includes(`BingSapphire/${APP_VERSION}`));
 });
 
 test('UA 声明的系统与客户端提示平台一致', () => {

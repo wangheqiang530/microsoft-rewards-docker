@@ -1,7 +1,7 @@
 import configManager from '../config.js';
 import networkClient from '../network.js';
 import logger from '../logger.js';
-import { APP_USER_AGENT, pcPageHeaders } from './fingerprint.js';
+import { APP_ID, APP_USER_AGENT, pcPageHeaders } from './fingerprint.js';
 import {
   accountNamesLikelyMatch,
   cookieValue,
@@ -390,7 +390,7 @@ export class AuthManager {
           'content-type': 'application/json; charset=UTF-8',
           'user-agent': APP_USER_AGENT,
           'authorization': `Bearer ${token}`,
-          'x-rewards-appid': 'SAAndroid/32.6.2110003560',
+          'x-rewards-appid': APP_ID,
           'x-rewards-ismobile': 'true',
           'x-rewards-country': 'cn',
           'x-rewards-language': 'zh'
