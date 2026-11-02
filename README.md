@@ -3,7 +3,7 @@
 **把微软积分日常，交给一台不休息的小容器。**
 基于 Docker + WebUI，适合 NAS、VPS 和家用服务器。多账号管理、每日任务、浏览器登录、代理与运行计划，都在一个网页里完成。
 
-[![Version](https://img.shields.io/badge/version-v1.10.7-blue.svg)](https://github.com/wangheqiang530/microsoft-rewards-docker/releases/tag/v1.10.7)
+[![Version](https://img.shields.io/badge/version-v1.10.8-blue.svg)](https://github.com/wangheqiang530/microsoft-rewards-docker/releases/tag/v1.10.8)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com/)
 [![Node.js](https://img.shields.io/badge/Node.js-20+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
@@ -19,7 +19,7 @@
 - 🖥️ **内置浏览器登录**：在 WebUI 的 VNC 窗口中完成微软账号登录与 MFA，自动抓取 Cookie 和 OAuth 凭据。
 - 🌐 **网络出口管理**：支持 HTTP / HTTPS / SOCKS5 代理，可按账号选择直连、跟随全局或指定节点。
 - 📅 **小时级运行计划**：24 个一小时档位，每账号选择一个，错过或冲突一目了然。
-- 📊 **可视化控制台**：账号总览、任务进度、积分趋势、实时日志、手动执行与一键停止。
+- 📊 **可视化控制台**：账号总览、任务进度、积分趋势、实时日志、24 小时脱敏诊断日志导出、手动执行与一键停止。
 - 🎮 **Epic 免费游戏**：多账号自动巡检与领取，遇到人机验证时可人工接管。
 - 🔔 **消息通知**：企业微信、钉钉、飞书、Bark、PushMe、Telegram。
 - 💾 **数据持久化**：配置、历史、日志与浏览器会话统一保存在 `./data`。

@@ -21,11 +21,15 @@ import { normalizeProxyUrl } from '../core/proxy.js';
 import microsoftLoginWindow, { isVncAvailable } from '../core/microsoftLoginWindow.js';
 import { checkGpuCapability } from '../core/gpuProbe.js';
 import { getFontStatus, refreshFontCache } from '../core/fontStatus.js';
+import {
+  buildDiagnosticReport,
+  DIAGNOSTIC_WINDOW_HOURS
+} from '../core/diagnostics.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const CURRENT_VERSION = '1.10.7';
+const CURRENT_VERSION = '1.10.8';
 
 let lastCpuInfo = os.cpus().map(c => c.times);
 
@@ -911,6 +915,23 @@ export function createServer() {
   app.get('/api/logs/history', (req, res) => {
     const limit = Math.min(1000, Math.max(50, parseInt(req.query.limit, 10) || 300));
     res.json({ success: true, data: logger.getRecentFromFile(limit) });
+  });
+
+  // 5.6 生成最近 24 小时脱敏诊断日志。预览与下载使用同一份内容。
+  app.get('/api/logs/diagnostics', (req, res) => {
+    res.set('Cache-Control', 'no-store, max-age=0');
+    try {
+      const data = buildDiagnosticReport({
+        version: CURRENT_VERSION,
+        accounts: configManager.getAccounts(),
+        config: configManager.get(),
+        status: taskManager.getStatus('all'),
+        hours: DIAGNOSTIC_WINDOW_HOURS
+      });
+      res.json({ success: true, data });
+    } catch (e) {
+      res.status(500).json({ success: false, message: `诊断日志生成失败: ${e.message}` });
+    }
   });
 
   // 6. 实时日志流 (SSE)

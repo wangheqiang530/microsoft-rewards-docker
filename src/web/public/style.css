@@ -1108,6 +1108,50 @@ body.mouse-follow-enabled .glass-surface::before {
 .logs-line .logs-acc { color: #38bdf8; white-space: nowrap; }
 .logs-empty { color: #64748b; text-align: center; padding: 20px 0; }
 
+.modal-diagnostics {
+  max-width: 980px;
+  width: 94vw;
+}
+
+.diagnostics-warning {
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.08);
+  color: #fbbf24;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.diagnostics-meta {
+  margin-bottom: 8px;
+  color: var(--text-sub);
+  font-size: 12px;
+}
+
+.diagnostics-preview {
+  width: 100%;
+  min-height: min(56vh, 620px);
+  resize: vertical;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  outline: none;
+  background: #0f172a;
+  color: #cbd5e1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre;
+}
+
+.diagnostics-preview:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.12);
+}
+
 /* Master Header Dashboard */
 .header {
   background: var(--card-bg);
@@ -3268,6 +3312,8 @@ body.account-column-resizing * {
 .terminal-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 12px;
 }
 

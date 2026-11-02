@@ -22,7 +22,7 @@
           <!-- 版本与状态复合胶囊 (结合更新检测与状态展示) -->
           <div class="version-status-pill status-idle" id="version-status-pill" title="系统状态: 后台定时就绪中 | 点击检查版本更新">
             <span class="status-dot"></span>
-            <span class="version-label" id="version-label">v1.10.7</span>
+            <span class="version-label" id="version-label">v1.10.8</span>
             <span class="update-indicator" id="update-indicator" style="display: none;">
               <span class="update-icon">🚀</span>
               <span class="update-text" id="update-text">有更新</span>
@@ -283,6 +283,7 @@
               <label class="terminal-auto-scroll">
                 <input type="checkbox" id="chk-auto-scroll" checked> 自动滚屏
               </label>
+              <button class="btn-text" id="btn-terminal-export-diagnostics" title="预览最近 24 小时脱敏诊断日志">📥 导出诊断日志</button>
               <button class="btn-text" id="btn-clear-logs" title="仅清空当前页面显示，后端日志与 data/app.log 仍保留">清空</button>
             </div>
           </div>
@@ -1376,8 +1377,31 @@
         <div class="logs-list" id="logs-modal-list"></div>
       </div>
       <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-logs-export-diagnostics">📥 导出诊断日志</button>
         <button class="btn btn-secondary" id="btn-logs-clear">清空页面显示</button>
         <button class="btn btn-primary" id="btn-close-logs-btn">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 脱敏诊断日志预览与导出 (Modal) -->
+  <div class="modal-backdrop" id="diagnostics-modal">
+    <div class="modal-box modal-diagnostics">
+      <div class="modal-header">
+        <div class="modal-title"><span>📥</span> 导出诊断日志</div>
+        <button class="btn-close" id="btn-close-diagnostics">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="diagnostics-warning">
+          内容已由服务端脱敏，仅包含最近 24 小时数据。发布到公开 Issue 前请再次检查账号上下文、任务标题和问题描述。
+        </div>
+        <div class="diagnostics-meta" id="diagnostics-meta">正在生成诊断日志预览...</div>
+        <textarea id="diagnostics-preview" class="diagnostics-preview" readonly spellcheck="false" aria-label="脱敏诊断日志预览"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-close-diagnostics-btn">取消</button>
+        <button class="btn btn-secondary" id="btn-copy-diagnostics" disabled>复制全部</button>
+        <button class="btn btn-primary" id="btn-download-diagnostics" disabled>确认下载</button>
       </div>
     </div>
   </div>

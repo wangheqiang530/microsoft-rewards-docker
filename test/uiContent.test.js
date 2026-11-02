@@ -63,6 +63,22 @@ test('发布版本号在 package 与 Web 服务端保持一致', () => {
   assert.match(appJs, new RegExp(`currentVersion \\|\\| '${escaped}'`));
 });
 
+test('日志弹窗与实时日志区都能预览并导出脱敏诊断日志', () => {
+  assert.match(indexHtml, /id="btn-logs-export-diagnostics"[^>]*>📥 导出诊断日志/);
+  assert.match(indexHtml, /id="btn-terminal-export-diagnostics"[^>]*>📥 导出诊断日志/);
+  assert.match(indexHtml, /id="diagnostics-modal"/);
+  assert.match(indexHtml, /id="diagnostics-preview"[^>]*readonly/);
+  assert.match(indexHtml, /id="btn-copy-diagnostics"/);
+  assert.match(indexHtml, /id="btn-download-diagnostics"[^>]*>确认下载/);
+  assert.match(appJs, /async function openDiagnosticsExport/);
+  assert.match(appJs, /\/api\/logs\/diagnostics/);
+  assert.match(appJs, /async function copyDiagnosticsExport/);
+  assert.match(appJs, /function downloadDiagnosticsExport/);
+  assert.match(serverJs, /app\.get\('\/api\/logs\/diagnostics'/);
+  assert.match(serverJs, /buildDiagnosticReport\(\{/);
+  assert.match(styleCss, /\.diagnostics-preview[\s\S]*font-family:\s*ui-monospace/);
+});
+
 test('任务区使用移动端签到与三组 7 日连续进度', () => {
   assert.equal(indexHtml.includes('每日双端签入'), false);
   assert.equal(indexHtml.includes('移动端签到 (双端签入)'), false);
