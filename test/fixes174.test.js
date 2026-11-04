@@ -174,6 +174,85 @@ test('Daily Set 卡片动作只执行 dailyset 卡片，不再误跑打孔卡', 
   }
 });
 
+test('DAPI Daily Set 三张 Child 领取成功后本地进度补到 3/3', async () => {
+  const accountId = 'acc_daily_set_dapi_174';
+  configManager.upsertAccount({ id: accountId, name: 'DAPI DailySet 测试', cookie: 'MOCK_COOKIE' });
+  const tm = new TaskManager();
+  const originals = {
+    discoverCards: rewardsApi.discoverCards,
+    claimCard: rewardsApi.claimCard,
+    randomDelay: rewardsApi.randomDelay,
+    sync: tm.syncAccountOfficialStatus
+  };
+  rewardsApi.discoverCards = async () => ([1, 2, 3].map(index => ({
+    offerId: `Gamification_DailySet_ZHCN_20261104_Child${index}`,
+    points: 10,
+    kind: 'dapi_reward',
+    category: 'dailyset',
+    source: 'dapi-dailyset-fallback',
+    title: `Daily ${index}`
+  })));
+  rewardsApi.claimCard = async () => {
+    rewardsApi.lastCardReport = { dapi: true, points: 10, verified: true };
+    return true;
+  };
+  rewardsApi.randomDelay = async () => {};
+  tm.syncAccountOfficialStatus = async () => tm.ensureAccountStats(accountId);
+  try {
+    const result = await tm.runTaskAction(accountId, 'dailySet');
+    const task = tm.ensureAccountStats(accountId).tasks.dailySet;
+    assert.equal(result.hadFailure, false);
+    assert.equal(task.progress, 3);
+    assert.equal(task.max, 3);
+    assert.equal(task.points, 30);
+    assert.equal(task.done, true);
+  } finally {
+    rewardsApi.discoverCards = originals.discoverCards;
+    rewardsApi.claimCard = originals.claimCard;
+    rewardsApi.randomDelay = originals.randomDelay;
+    tm.syncAccountOfficialStatus = originals.sync;
+  }
+});
+
+test('DAPI Daily Set 返回成功但未加分时标记为部分完成', async () => {
+  const accountId = 'acc_daily_set_unverified_174';
+  configManager.upsertAccount({ id: accountId, name: 'DAPI DailySet 未确认测试', cookie: 'MOCK_COOKIE' });
+  const tm = new TaskManager();
+  const originals = {
+    discoverCards: rewardsApi.discoverCards,
+    claimCard: rewardsApi.claimCard,
+    randomDelay: rewardsApi.randomDelay,
+    sync: tm.syncAccountOfficialStatus
+  };
+  rewardsApi.discoverCards = async () => [{
+    offerId: 'Gamification_DailySet_ZHCN_20261104_Child1',
+    points: 10,
+    kind: 'dapi_reward',
+    category: 'dailyset',
+    source: 'dapi-dailyset-fallback',
+    title: 'Daily 1'
+  }];
+  rewardsApi.claimCard = async () => {
+    rewardsApi.lastCardReport = { dapi: true, points: 0, verified: false };
+    return true;
+  };
+  rewardsApi.randomDelay = async () => {};
+  tm.syncAccountOfficialStatus = async () => tm.ensureAccountStats(accountId);
+  try {
+    const result = await tm.runTaskAction(accountId, 'dailySet');
+    const task = tm.ensureAccountStats(accountId).tasks.dailySet;
+    assert.equal(result.hadFailure, true);
+    assert.match(result.message, /尚未确认积分/);
+    assert.ok(result.details.some(x => x.includes('未确认')));
+    assert.equal(task.progress, 0);
+  } finally {
+    rewardsApi.discoverCards = originals.discoverCards;
+    rewardsApi.claimCard = originals.claimCard;
+    rewardsApi.randomDelay = originals.randomDelay;
+    tm.syncAccountOfficialStatus = originals.sync;
+  }
+});
+
 test('Epic 登录窗口 close 卡死时仍会返回并释放 Firefox 锁', async () => {
   const em = new EpicManager();
   em.closeTimeoutMs = 30;

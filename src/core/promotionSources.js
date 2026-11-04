@@ -36,6 +36,10 @@ function normalizeDateKey(value = '') {
   return match ? `${match[1]}-${match[2]}-${match[3]}` : text.slice(0, 10);
 }
 
+function compactDateKey(timestamp = Date.now()) {
+  return localDateKey(timestamp).replace(/-/g, '');
+}
+
 function normalizeOfferId(item = {}, attributes = {}) {
   return String(
     item.offerId
@@ -133,6 +137,28 @@ export function extractDailySetCardsFromDashboard(payload = {}, now = Date.now()
     });
   }
   return cards;
+}
+
+export function buildDapiDailySetOfferIds(now = Date.now(), locale = 'ZHCN') {
+  const date = compactDateKey(now);
+  return [1, 2, 3].map(index => `Gamification_DailySet_${locale}_${date}_Child${index}`);
+}
+
+/**
+ * Dashboard 与 /earn 都可能缺失今日 Daily Set，但 App DAPI 仍接受固定格式的
+ * Child offerId。用日期生成兜底卡片，实际完成后由响应积分和余额核验。
+ */
+export function buildDapiDailySetCards(now = Date.now(), locale = 'ZHCN') {
+  return buildDapiDailySetOfferIds(now, locale).map((offerId, index) => ({
+    title: `移动端每日活动 ${index + 1}`,
+    points: 10,
+    offerId,
+    hash: '',
+    destination: '',
+    kind: 'dapi_reward',
+    category: 'dailyset',
+    source: 'dapi-dailyset-fallback'
+  }));
 }
 
 /**

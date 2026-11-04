@@ -3059,7 +3059,7 @@ let taskRunning = false;
 function refreshVersionPillTooltip() {
   const pill = document.getElementById('version-status-pill');
   if (!pill) return;
-  const current = updateInfo?.currentVersion || '1.10.9';
+  const current = updateInfo?.currentVersion || '1.10.10';
   const statusLine = taskRunning
     ? '🟦 系统状态：正在执行自动化任务打卡中…'
     : '🟢 系统状态：后台定时就绪中';
@@ -3114,8 +3114,8 @@ async function handleVersionCheckClick() {
     openEpicActionModal(
       '版本检查',
       failed
-        ? `当前运行版本 v${updateInfo?.currentVersion || '1.10.9'}，但无法连接 GitHub 检查更新。`
-        : `当前运行版本 v${updateInfo?.currentVersion || '1.10.9'} 已是最新版本。`,
+        ? `当前运行版本 v${updateInfo?.currentVersion || '1.10.10'}，但无法连接 GitHub 检查更新。`
+        : `当前运行版本 v${updateInfo?.currentVersion || '1.10.10'} 已是最新版本。`,
       ['获取远端版本', '比较版本号', failed ? '检查失败' : '确认无需更新'],
       3
     );
@@ -4210,7 +4210,7 @@ function formatPunchCardTooltip(t) {
     }
 
     if (key === 'appPromotions') {
-      displayName = '移动端每日活动';
+      displayName = '移动端附加活动';
       pointsBadge = Number(t.max || 0) > 0
         ? (isDone ? `+${t.points || 0} 积分` : `${t.max} 项待处理`)
         : '等待同步';

@@ -180,3 +180,30 @@ test('Web 连签状态为 false 时仍允许 DAPI 的已完成状态纠正', asy
     networkClient.request = originals.request;
   }
 });
+
+test('移动端签到使用 type 101，而不是启动类型 103', async () => {
+  const originals = {
+    request: networkClient.request,
+    getAccessToken: authManager.getAccessToken
+  };
+  let posted = null;
+  authManager.getAccessToken = () => 'MOCK_TOKEN';
+  networkClient.request = async options => {
+    posted = JSON.parse(options.data);
+    return {
+      response: {
+        balance: 125,
+        activity: { p: 5, a: { offerid: 'Gamification_Sapphire_DailyCheckIn' } }
+      }
+    };
+  };
+  try {
+    const result = await rewardsApi.signApp();
+    assert.equal(posted.type, 101);
+    assert.equal(posted.attributes.offerid, 'Gamification_Sapphire_DailyCheckIn');
+    assert.equal(result.points, 5);
+  } finally {
+    networkClient.request = originals.request;
+    authManager.getAccessToken = originals.getAccessToken;
+  }
+});

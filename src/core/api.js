@@ -15,6 +15,7 @@ import {
 } from './specialActivities.js';
 import {
   buildAppActivityPayload,
+  buildDapiDailySetCards,
   extractDailySetCardsFromDashboard,
   getAppCheckInStatusFromPromotions,
   isAppReadPromotion,
@@ -1298,7 +1299,9 @@ export class RewardsApi {
         data: JSON.stringify({
           amount: 1,
           id: this.getDapiId(),
-          type: 103,
+          // 新版 App 的签到活动按普通领取活动处理。type=103 仅触发启动上报，
+          // 接口会返回 200，但连签 progress 和 last_updated 不会推进。
+          type: 101,
           country: region,
           channel: APP_CONFIG.channel,
           // 关键修复：必须带上 offerid，微软才会把它计入「必应应用连续打卡」。
@@ -1571,7 +1574,8 @@ export class RewardsApi {
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
       cards = await this.discoverCardsOnce();
-      if (cards.length > 0 || !retryEmpty || attempt >= attempts) return cards;
+      const hasDiscoveredCards = cards.some(card => card.source !== 'dapi-dailyset-fallback');
+      if (hasDiscoveredCards || !retryEmpty || attempt >= attempts) return cards;
       const delayMs = Math.max(
         0,
         Number(retryDelaysMs[Math.min(attempt - 1, retryDelaysMs.length - 1)]) || 0
@@ -1589,7 +1593,8 @@ export class RewardsApi {
     const cardIndexByOfferId = new Map();
 
     const pushCard = (card) => {
-      if (!card || !card.offerId || (!card.hash && !card.destination) || card.points <= 0) return;
+      const hasAction = card?.hash || card?.destination || card?.kind === 'dapi_reward';
+      if (!card || !card.offerId || !hasAction || card.points <= 0) return;
       const existingIndex = cardIndexByOfferId.get(card.offerId);
       if (existingIndex !== undefined) {
         if (!cards[existingIndex].hash && card.hash) {
@@ -1619,6 +1624,13 @@ export class RewardsApi {
       return 'open_only';
     };
 
+    const addDailySetFallback = () => {
+      if (cards.some(card => card.category === 'dailyset')) return;
+      for (const card of buildDapiDailySetCards()) {
+        pushCard(card);
+      }
+    };
+
     try {
       // Dashboard API 是 Daily Set 的主要来源。新版 /earn 经常只保留
       // more activities，而今日三张 Daily Set 只出现在 dashboard.dailySetPromotions。
@@ -1631,7 +1643,10 @@ export class RewardsApi {
         url: 'https://rewards.bing.com/earn',
         headers: pcPageHeaders()
       });
-      if (!html) return cards;
+      if (!html) {
+        addDailySetFallback();
+        return cards;
+      }
 
       // 1. Next.js Flight Chunks 解析
       try {
@@ -1746,6 +1761,9 @@ export class RewardsApi {
       logger.log('🔴', `扫描活动卡片失败: ${e.message}`);
     }
 
+    // 新版 App 的 Daily Set 可能同时从 Dashboard API 和 /earn 消失。
+    // 只有完全没发现 Daily Set 时才启用日期兜底，避免重复执行。
+    addDailySetFallback();
     return cards;
   }
 
@@ -1792,6 +1810,26 @@ export class RewardsApi {
    * 完成单张卡片打卡
    */
   async claimCard(card) {
+    if (card.kind === 'dapi_reward') {
+      const result = await this.claimAppPromotion({
+        name: card.title,
+        offerId: card.offerId,
+        type: 'dailyset',
+        complete: false,
+        progress: 0,
+        max: Number(card.points || 10)
+      });
+      this.lastCardReport = {
+        status: null,
+        acknowledged: result.success === true,
+        dapi: true,
+        points: Number(result.points || 0),
+        verified: result.verified === true,
+        error: result.error || ''
+      };
+      return result.success === true;
+    }
+
     const url = card.url || 'https://rewards.bing.com/earn';
     const referer = card.url || 'https://rewards.bing.com/earn';
     let nextAction = this.cachedNextAction;

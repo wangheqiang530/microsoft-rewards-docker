@@ -3,7 +3,7 @@
 **把微软积分日常，交给一台不休息的小容器。**
 基于 Docker + WebUI，适合 NAS、VPS 和家用服务器。多账号管理、每日任务、浏览器登录、代理与运行计划，都在一个网页里完成。
 
-[![Version](https://img.shields.io/badge/version-v1.10.9-blue.svg)](https://github.com/wangheqiang530/microsoft-rewards-docker/releases/tag/v1.10.9)
+[![Version](https://img.shields.io/badge/version-v1.10.10-blue.svg)](https://github.com/wangheqiang530/microsoft-rewards-docker/releases/tag/v1.10.10)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com/)
 [![Node.js](https://img.shields.io/badge/Node.js-20+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
@@ -125,7 +125,8 @@ docker run -d \
 | :--- | :--- |
 | PC 签入 | 自动完成网页端每日签入 |
 | 移动端签到 | 使用已授权的移动端身份完成 App 签到 |
-| 移动端每日活动 | 从 App DAPI 获取并完成三张每日活动卡片 |
+| 移动端每日活动 | 按当天日期生成三张 DAPI Child offerId 并领取 30 分 |
+| 移动端附加活动 | 处理 App DAPI 返回的 sapphire 附加活动 |
 | 新闻阅读 | 自动阅读每日资讯任务 |
 | 必应 PC 搜索 | 按官网实际配额执行，连续不涨分时自动停止 |
 | Daily Set | 自动完成每日活动集 |

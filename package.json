@@ -1,6 +1,6 @@
 {
   "name": "microsoft-rewards-docker",
-  "version": "1.10.9",
+  "version": "1.10.10",
   "description": "Microsoft Rewards 微软积分全能自动化助手 (Docker/WebUI版)，支持全任务自动化、现代化毛玻璃看板、代理配置与多渠道推送。",
   "main": "src/index.js",
   "type": "module",

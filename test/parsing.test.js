@@ -291,3 +291,47 @@ test('无 hash 的 Daily Set 链接卡片通过目标链接上报', async () => 
     rewardsApi.reportDailyActivity = original;
   }
 });
+
+test('页面完全缺失 Daily Set 时生成当天三个 DAPI Child 兜底卡片', async () => {
+  const origRequest = networkClient.request;
+  networkClient.request = async ({ url }) => {
+    if (String(url).includes('/api/getuserinfo')) {
+      return { dashboard: { dailySetPromotions: {} } };
+    }
+    return '<html><body>no daily set cards</body></html>';
+  };
+  try {
+    const cards = await rewardsApi.discoverCards();
+    const dailySet = cards.filter(card => card.category === 'dailyset');
+    assert.equal(dailySet.length, 3);
+    assert.ok(dailySet.every(card => card.kind === 'dapi_reward'));
+    assert.ok(dailySet.every(card => card.source === 'dapi-dailyset-fallback'));
+    assert.match(dailySet[0].offerId, /^Gamification_DailySet_ZHCN_\d{8}_Child1$/);
+  } finally {
+    networkClient.request = origRequest;
+  }
+});
+
+test('DAPI Daily Set 兜底卡片通过 type 101 领取', async () => {
+  const original = rewardsApi.claimAppPromotion;
+  let claimedOffer = '';
+  rewardsApi.claimAppPromotion = async promotion => {
+    claimedOffer = promotion.offerId;
+    return { success: true, verified: true, points: 10 };
+  };
+  try {
+    const claimed = await rewardsApi.claimCard({
+      title: '移动端每日活动 1',
+      offerId: 'Gamification_DailySet_ZHCN_20261104_Child1',
+      points: 10,
+      kind: 'dapi_reward',
+      category: 'dailyset',
+      source: 'dapi-dailyset-fallback'
+    });
+    assert.equal(claimed, true);
+    assert.equal(claimedOffer, 'Gamification_DailySet_ZHCN_20261104_Child1');
+    assert.equal(rewardsApi.lastCardReport.points, 10);
+  } finally {
+    rewardsApi.claimAppPromotion = original;
+  }
+});

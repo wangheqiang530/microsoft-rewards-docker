@@ -102,7 +102,7 @@ const baseAccountsStats = {
     lastUpdate: Date.now() - 12 * 60 * 1000,
     tasks: {
       sign: { name: '移动端签到', progress: 1, max: 1, points: 10, unit: '次', icon: '📱', done: true },
-      appPromotions: { name: '移动端每日活动', progress: 3, max: 3, points: 30, unit: '项', icon: '📱', available: true, done: true },
+      appPromotions: { name: '移动端附加活动', progress: 3, max: 3, points: 30, unit: '项', icon: '📱', available: true, done: true },
       read: { name: '新闻资讯自动阅读', progress: 30, max: 30, points: 30, unit: '篇', icon: '📖', done: true },
       search: { name: '必应 PC 搜索任务', progress: 60, max: 60, points: 60, unit: '分', icon: '🔍', done: true },
       dailySet: { name: '每日活动集 (Daily Set)', progress: 3, max: 3, points: 30, unit: '个', icon: '📅', done: true },
@@ -175,7 +175,7 @@ const baseAccountsStats = {
     lastUpdate: Date.now() - 45 * 60 * 1000,
     tasks: {
       sign: { name: '移动端签到', progress: 0, max: 1, points: 0, unit: '次', icon: '📱', done: false },
-      appPromotions: { name: '移动端每日活动', progress: 1, max: 3, points: 10, unit: '项', icon: '📱', available: true, done: false },
+      appPromotions: { name: '移动端附加活动', progress: 1, max: 3, points: 10, unit: '项', icon: '📱', available: true, done: false },
       read: { name: '新闻资讯自动阅读', progress: 30, max: 30, points: 30, unit: '篇', icon: '📖', done: true },
       search: { name: '必应 PC 搜索任务', progress: 42, max: 60, points: 42, unit: '分', icon: '🔍', done: false },
       dailySet: { name: '每日活动集 (Daily Set)', progress: 2, max: 3, points: 0, unit: '个', icon: '📅', done: false },
@@ -232,7 +232,7 @@ const baseAccountsStats = {
     lastUpdate: Date.now() - 5 * 60 * 1000,
     tasks: {
       sign: { name: '移动端签到', progress: 1, max: 1, points: 10, unit: '次', icon: '📱', done: true },
-      appPromotions: { name: '移动端每日活动', progress: 3, max: 3, points: 30, unit: '项', icon: '📱', available: true, done: true },
+      appPromotions: { name: '移动端附加活动', progress: 3, max: 3, points: 30, unit: '项', icon: '📱', available: true, done: true },
       read: { name: '新闻资讯自动阅读', progress: 30, max: 30, points: 30, unit: '篇', icon: '📖', done: true },
       search: { name: '必应 PC 搜索任务', progress: 60, max: 60, points: 60, unit: '分', icon: '🔍', done: true },
       dailySet: { name: '每日活动集 (Daily Set)', progress: 3, max: 3, points: 30, unit: '个', icon: '📅', done: true },

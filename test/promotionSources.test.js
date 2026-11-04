@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildAppActivityPayload,
+  buildDapiDailySetCards,
+  buildDapiDailySetOfferIds,
   extractDailySetCardsFromDashboard,
   getAppCheckInStatusFromPromotions,
   getPendingSapphireAppPromotions,
@@ -44,6 +46,21 @@ test('从 Dashboard API 提取今日未完成的 Daily Set 卡片', () => {
   assert.equal(cards[0].hash, 'hash-1');
   assert.equal(cards[1].hash, '');
   assert.match(cards[1].destination, /bing\.com\/search/);
+});
+
+test('按日期生成三张 App Daily Set Child offerId 兜底卡片', () => {
+  const now = new Date(2026, 10, 4, 10, 0, 0).getTime();
+  const ids = buildDapiDailySetOfferIds(now);
+  assert.deepEqual(ids, [
+    'Gamification_DailySet_ZHCN_20261104_Child1',
+    'Gamification_DailySet_ZHCN_20261104_Child2',
+    'Gamification_DailySet_ZHCN_20261104_Child3'
+  ]);
+  const cards = buildDapiDailySetCards(now);
+  assert.equal(cards.length, 3);
+  assert.ok(cards.every(card => card.kind === 'dapi_reward'));
+  assert.ok(cards.every(card => card.category === 'dailyset'));
+  assert.ok(cards.every(card => card.points === 10));
 });
 
 test('移动端 DAPI 活动可识别 sapphire、签到与阅读任务', () => {

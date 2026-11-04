@@ -80,7 +80,7 @@ export class TaskManager {
       lastRunAt: 0,
       tasks: {
         sign: { name: "移动端签到", progress: 0, max: 1, points: 0, unit: "次", icon: "📱", done: false },
-        appPromotions: { name: "移动端每日活动", progress: 0, max: 0, points: 0, unit: "项", icon: "📱", done: false, available: false, statusMessage: "等待移动端活动同步" },
+        appPromotions: { name: "移动端附加活动", progress: 0, max: 0, points: 0, unit: "项", icon: "📱", done: false, available: false, statusMessage: "等待移动端附加活动同步" },
         read: { name: "新闻资讯自动阅读", progress: 0, max: 30, points: 0, unit: "篇", icon: "📖", done: false },
         search: { name: "必应 PC 搜索任务", progress: 0, max: 0, points: 0, unit: "分", icon: "🔍", done: false, searchTier: null, statusMessage: "等待官网同步会员等级配额" },
         dailySet: { name: "每日活动集 (Daily Set)", progress: 0, max: 3, points: 0, unit: "个", icon: "📅", done: false },
@@ -841,7 +841,7 @@ export class TaskManager {
               const allDone = pendingAppPromotions.length === 0;
               accStats.tasks.appPromotions = this.mergeMonotonicTask(currentAppTask, {
                 ...currentAppTask,
-                name: '移动端每日活动',
+                name: '移动端附加活动',
                 progress: completedPromotions.length,
                 max: sapphirePromotions.length,
                 points: completedPoints,
@@ -850,18 +850,18 @@ export class TaskManager {
                 available: true,
                 done: allDone,
                 statusMessage: allDone
-                  ? '移动端每日活动已全部完成'
+                  ? '移动端附加活动已全部完成'
                   : `待完成 ${pendingAppPromotions.length} 项`
               });
             } else if (Number(currentAppTask.max || 0) === 0) {
               accStats.tasks.appPromotions = {
                 ...currentAppTask,
-                name: '移动端每日活动',
+                name: '移动端附加活动',
                 unit: '项',
                 icon: '📱',
                 available: false,
                 done: false,
-                statusMessage: '移动端未返回每日活动'
+                statusMessage: '移动端未返回附加活动'
               };
             }
           }
@@ -1611,7 +1611,7 @@ export class TaskManager {
   }
 
   /**
-   * 执行移动端 DAPI 返回的 sapphire 每日活动。
+   * 执行移动端 DAPI 返回的 sapphire 附加活动。
    * 这些任务通常不出现在 Web /earn 的 activityCards 中。
    */
   async runPendingAppPromotions(accCfg, options = {}) {
@@ -1628,7 +1628,7 @@ export class TaskManager {
         && sapphirePromotions.every(item => item.complete === true);
       const currentTask = this.ensureAccountStats(accCfg.id).tasks?.appPromotions || {};
       this.ensureAccountStats(accCfg.id).tasks.appPromotions = this.mergeMonotonicTask(currentTask, {
-        name: '移动端每日活动',
+        name: '移动端附加活动',
         progress: sapphirePromotions.filter(item => item.complete === true).length,
         max: sapphirePromotions.length,
         points: sapphirePromotions
@@ -1638,7 +1638,7 @@ export class TaskManager {
         icon: '📱',
         available: sapphirePromotions.length > 0,
         done: allDone,
-        statusMessage: allDone ? '移动端每日活动已全部完成' : '移动端暂无待执行活动'
+        statusMessage: allDone ? '移动端附加活动已全部完成' : '移动端暂无待执行附加活动'
       });
       this.saveStats();
       return {
@@ -1650,7 +1650,7 @@ export class TaskManager {
       };
     }
 
-    logger.log('📱', `移动端每日活动发现 ${pending.length} 项待完成`, '', accCfg.name);
+    logger.log('📱', `移动端附加活动发现 ${pending.length} 项待完成`, '', accCfg.name);
     for (const promotion of pending) {
       const result = await rewardsApi.claimAppPromotion(promotion);
       const ok = result?.success === true || result?.verified === true;
@@ -1658,10 +1658,10 @@ export class TaskManager {
         completed++;
         points += Math.max(0, Number(result.points || promotion.max || 0));
         details.push(`${promotion.name || promotion.offerId} 已完成${result.points ? ` +${result.points} 积分` : ''}`);
-        logger.log('✅', `移动端每日活动已完成: ${promotion.name || promotion.offerId}`, '', accCfg.name);
+        logger.log('✅', `移动端附加活动已完成: ${promotion.name || promotion.offerId}`, '', accCfg.name);
       } else {
         details.push(`${promotion.name || promotion.offerId} 未确认完成${result?.error ? `：${result.error}` : ''}`);
-        logger.log('🟡', `移动端每日活动未确认: ${promotion.name || promotion.offerId}${result?.error ? ` (${result.error})` : ''}`, '', accCfg.name);
+        logger.log('🟡', `移动端附加活动未确认: ${promotion.name || promotion.offerId}${result?.error ? ` (${result.error})` : ''}`, '', accCfg.name);
       }
       await rewardsApi.randomDelay(1200, 2400);
     }
@@ -1673,7 +1673,7 @@ export class TaskManager {
     const allDone = afterSapphire.length > 0 && afterPending.length === 0;
     const currentTask = this.ensureAccountStats(accCfg.id).tasks?.appPromotions || {};
     this.ensureAccountStats(accCfg.id).tasks.appPromotions = this.mergeMonotonicTask(currentTask, {
-      name: '移动端每日活动',
+      name: '移动端附加活动',
       progress: doneItems.length,
       max: afterSapphire.length,
       points: doneItems.reduce((sum, item) => sum + Math.max(0, Number(item.max || 0)), 0),
@@ -1682,7 +1682,7 @@ export class TaskManager {
       available: afterSapphire.length > 0,
       done: allDone,
       statusMessage: allDone
-        ? '移动端每日活动已全部完成'
+        ? '移动端附加活动已全部完成'
         : `待完成 ${afterPending.length} 项`
     });
     this.saveStats();
@@ -1826,12 +1826,12 @@ export class TaskManager {
         result.hadFailure = appResult.attempted > 0 && appResult.completed < appResult.attempted;
         if (appResult.attempted === 0) {
           result.message = appResult.alreadyDone
-            ? '移动端每日活动已全部完成'
-            : '当前没有可执行的移动端每日活动';
+            ? '移动端附加活动已全部完成'
+            : '当前没有可执行的移动端附加活动';
         } else if (appResult.completed > 0) {
-          result.message = `移动端每日活动已推进 ${appResult.completed}/${appResult.attempted} 项`;
+          result.message = `移动端附加活动已推进 ${appResult.completed}/${appResult.attempted} 项`;
         } else {
-          result.message = '移动端每日活动已提交，但 DAPI 尚未确认进度';
+          result.message = '移动端附加活动已提交，但 DAPI 尚未确认进度';
         }
         await this.syncAccountOfficialStatus(acc, { owned: true });
       } else if (taskKey === 'read') {
@@ -1891,7 +1891,10 @@ export class TaskManager {
             logger.log('🟡', `活动卡片暂未读取到，${delayText}重试 (${attempt}/${attempts})`, acc.name);
           }
         });
-        const cards = allCards.filter(c => c.category === category);
+        const cards = allCards.filter(c => (
+          c.category === category
+          && !(taskKey === 'dailySet' && before?.tasks?.dailySet?.done === true)
+        ));
 
         if (cards.length === 0) {
           if (taskKey === 'dailySet') {
@@ -1922,9 +1925,18 @@ export class TaskManager {
               result.details.push(`未完成：${card.title || card.offerId}`);
               continue;
             }
+            const cardReport = rewardsApi.lastCardReport || {};
+            if (card.kind === 'dapi_reward'
+              && Number(cardReport.points || 0) <= 0
+              && cardReport.verified !== true) {
+              result.hadFailure = true;
+              result.details.push(`未确认：${card.title || card.offerId}`);
+              continue;
+            }
             okCount++;
-            claimedPoints += Number(card.points || 0);
-            result.details.push(`${card.title || card.offerId} +${Number(card.points || 0)} 积分`);
+            const awardedPoints = Number(cardReport.points || card.points || 0);
+            claimedPoints += awardedPoints;
+            result.details.push(`${card.title || card.offerId} +${awardedPoints} 积分`);
             await rewardsApi.randomDelay(1800, 3500);
           }
 
@@ -1940,19 +1952,29 @@ export class TaskManager {
             }, acc.id);
           }
 
-          const synced = await this.syncAccountOfficialStatus(acc, { owned: true });
-          if (taskKey === 'dailySet' && !synced) {
-            const nextProgress = Math.min(Number(before?.tasks?.dailySet?.max || 3) || 3, Number(before?.tasks?.dailySet?.progress || 0) + okCount);
+          await this.syncAccountOfficialStatus(acc, { owned: true });
+          if (taskKey === 'dailySet' && okCount > 0) {
+            const currentDailySet = this.ensureAccountStats(acc.id).tasks?.dailySet || {};
+            const max = Math.max(1, Number(currentDailySet.max || before?.tasks?.dailySet?.max || 3) || 3);
+            const nextProgress = Math.min(
+              max,
+              Math.max(
+                Number(currentDailySet.progress || 0),
+                Number(before?.tasks?.dailySet?.progress || 0) + okCount
+              )
+            );
             this.updateTask('dailySet', {
               progress: nextProgress,
-              max: Number(before?.tasks?.dailySet?.max || 3) || 3,
-              points: nextProgress >= (Number(before?.tasks?.dailySet?.max || 3) || 3) ? 30 : 0,
-              done: nextProgress >= (Number(before?.tasks?.dailySet?.max || 3) || 3)
+              max,
+              points: nextProgress >= max ? 30 : 0,
+              done: nextProgress >= max
             }, acc.id);
           }
           result.message = okCount > 0
             ? `已推进 ${okCount} 个可完成活动`
-            : '已刷新状态，当前没有可点击完成的活动';
+            : (result.hadFailure
+                ? '活动已提交，但移动端 Daily Set 尚未确认积分'
+                : '已刷新状态，当前没有可点击完成的活动');
         }
       } else if (taskKey === 'desktopApp') {
         const beforeInfo = await rewardsApi.getRewardsInfo(1).catch(() => null);
@@ -2285,16 +2307,16 @@ export class TaskManager {
 
     if (!this.running || this.isAccountPaused(accountId)) return;
 
-    // 2.5 移动端 DAPI 每日活动（新版 App 的三张 +10 卡片）。
+    // 2.5 移动端 DAPI 附加活动。
     const wantAppPromotions = globalCfg.tasks?.appPromotions !== false;
     if (wantAppPromotions && tokenOk && this.running) {
       try {
         const appResult = await this.runPendingAppPromotions(accCfg);
         if (appResult.attempted > 0) {
-          logger.addTimeline(accountName, `移动端每日活动推进 ${appResult.completed}/${appResult.attempted} 项`);
+          logger.addTimeline(accountName, `移动端附加活动推进 ${appResult.completed}/${appResult.attempted} 项`);
         }
       } catch (e) {
-        logger.log('🟡', `移动端每日活动执行异常: ${e.message}`, '', accountName);
+        logger.log('🟡', `移动端附加活动执行异常: ${e.message}`, '', accountName);
       }
     }
 
@@ -2315,8 +2337,11 @@ export class TaskManager {
         }
       });
       // 按分类过滤：dailyset=每日活动集，desktop=桌面端打孔卡，其余归 promos
+      const currentDailySetTask = this.ensureAccountStats(accountId).tasks?.dailySet || {};
       const cards = allCards.filter(c => {
-        if (c.category === 'dailyset') return wantDailySet;
+        if (c.category === 'dailyset') {
+          return wantDailySet && currentDailySetTask.done !== true;
+        }
         if (c.category === 'desktop') return wantDesktop;
         return wantPromos;
       });
@@ -2328,6 +2353,8 @@ export class TaskManager {
         let desktopOk = 0;
         let promoOk = 0;
         let promoTotal = 0;
+        let dailySetOk = 0;
+        let dailySetPoints = 0;
         for (const card of cards) {
           if (card.category === 'promo') promoTotal++;
         }
@@ -2341,6 +2368,12 @@ export class TaskManager {
             : 0;
           const claimed = await rewardsApi.claimCard(card);
           if (!claimed) continue;
+          const cardReport = rewardsApi.lastCardReport || {};
+          if (card.kind === 'dapi_reward'
+            && Number(cardReport.points || 0) <= 0
+            && cardReport.verified !== true) {
+            continue;
+          }
 
           if (card.category === 'desktop') {
             await rewardsApi.randomDelay(isTurbo ? 300 : 1200, isTurbo ? 600 : 2200);
@@ -2381,6 +2414,21 @@ export class TaskManager {
               points: claimedPoints,
               done: promoTotal > 0 && promoOk >= promoTotal
             }, accountId);
+          } else if (card.category === 'dailyset') {
+            const awardedPoints = Number(cardReport.points || card.points || 0);
+            dailySetOk++;
+            dailySetPoints += awardedPoints;
+            cardOk++;
+            claimedPoints += awardedPoints;
+            const currentTask = this.ensureAccountStats(accountId).tasks?.dailySet || {};
+            const max = Math.max(1, Number(currentTask.max || 3) || 3);
+            const nextProgress = Math.min(max, Number(currentTask.progress || 0) + 1);
+            this.updateTask('dailySet', {
+              progress: nextProgress,
+              max,
+              points: nextProgress >= max ? 30 : 0,
+              done: nextProgress >= max
+            }, accountId);
           } else {
             cardOk++;
             claimedPoints += Number(card.points || 0);
@@ -2395,6 +2443,9 @@ export class TaskManager {
             points: claimedPoints,
             done: promoOk >= promoTotal
           }, accountId);
+        }
+        if (dailySetOk > 0) {
+          logger.log('✅', `移动端 Daily Set 已确认 ${dailySetOk} 项 (+${dailySetPoints} 积分)`, accountName);
         }
         // 注意：这里不再无条件给 dailySet 记 3/3 +30 分。
         // 每日活动集的真实状态由 syncAccountOfficialStatus() 按官网数据写入。
