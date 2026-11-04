@@ -1,7 +1,7 @@
 import configManager from '../config.js';
 import networkClient from '../network.js';
 import logger from '../logger.js';
-import { normalizeProxyUrl } from './proxy.js';
+import { normalizeNotificationProxyUrl } from './proxy.js';
 
 const NOTIFY_CHANNEL_LABELS = {
   wework: '企业微信',
@@ -37,11 +37,25 @@ export class Notifier {
     if (!enabled) {
       return { useProxy: false, proxyUrl: '', ignoreAccountProxy: true };
     }
-    const proxyUrl = normalizeProxyUrl(rawUrl);
+    const proxyUrl = normalizeNotificationProxyUrl(rawUrl);
     if (!proxyUrl) {
       throw new Error(`「${NOTIFY_CHANNEL_LABELS[channel]}」已启用推送代理，但未填写专用代理地址`);
     }
     return { useProxy: true, proxyUrl, ignoreAccountProxy: true };
+  }
+
+  describeTelegramError(error) {
+    const status = error?.response?.status;
+    const raw = error?.response?.data;
+    let data = raw;
+    if (typeof raw === 'string') {
+      try { data = JSON.parse(raw); } catch {}
+    }
+    const description = String(data?.description || '').trim();
+    if (description) {
+      return `${description}${status ? ` (HTTP ${status})` : ''}`;
+    }
+    return error?.message || '未知错误';
   }
 
   async send(title, content) {
@@ -219,10 +233,8 @@ export class Notifier {
 
   async sendTelegram(botToken, chatId, title, text, proxyOptions = null) {
     const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-    // Telegram 基础 Markdown 模式下，未配对的下划线 _ 会导致 400 实体解析异常
-    const safeTitle = String(title || '').replace(/(?<!\\)_/g, '\\_');
-    const safeText = String(text || '').replace(/(?<!\\)_/g, '\\_');
-    const message = `*${safeTitle}*\n\n${safeText}`;
+    // 任务正文可能包含 Markdown 控制字符，纯文本发送最稳定。
+    const message = `${String(title || '')}\n\n${String(text || '')}`;
     const requestProxy = proxyOptions || this.getNotificationProxyOptions('telegram');
     try {
       await networkClient.request({
@@ -232,16 +244,67 @@ export class Notifier {
         data: {
           chat_id: chatId,
           text: message,
-          parse_mode: 'Markdown'
+          disable_web_page_preview: true
         },
         ...requestProxy
       });
       logger.log('🔵', '「Telegram」消息推送成功');
       return true;
     } catch (e) {
-      logger.log('🔴', `「Telegram」推送失败: ${e.message}`);
-      throw e;
+      const message = this.describeTelegramError(e);
+      logger.log('🔴', `「Telegram」推送失败: ${message}`);
+      throw new Error(message);
     }
+  }
+
+  async checkTelegram(botToken, chatId, proxyOverride = null) {
+    const token = String(botToken || '').trim();
+    const target = String(chatId || '').trim();
+    if (!token) throw new Error('Telegram Bot Token 不能为空');
+    const proxyOptions = this.getNotificationProxyOptions('telegram', proxyOverride);
+    const startedAt = Date.now();
+    let me;
+    try {
+      me = await networkClient.request({
+        url: `https://api.telegram.org/bot${token}/getMe`,
+        method: 'GET',
+        timeout: 15000,
+        ...proxyOptions
+      });
+    } catch (e) {
+      throw new Error(this.describeTelegramError(e));
+    }
+    const bot = typeof me === 'string' ? JSON.parse(me) : me;
+    if (bot?.ok !== true) {
+      throw new Error(bot?.description || 'Telegram Bot Token 校验失败');
+    }
+
+    let chat = null;
+    let chatError = '';
+    if (target) {
+      try {
+        const chatRes = await networkClient.request({
+          url: `https://api.telegram.org/bot${token}/getChat?chat_id=${encodeURIComponent(target)}`,
+          method: 'GET',
+          timeout: 15000,
+          ...proxyOptions
+        });
+        chat = typeof chatRes === 'string' ? JSON.parse(chatRes) : chatRes;
+      } catch (e) {
+        chatError = this.describeTelegramError(e);
+      }
+    }
+
+    return {
+      latencyMs: Date.now() - startedAt,
+      botUsername: bot.result?.username || '',
+      botName: bot.result?.first_name || '',
+      chatValid: chat?.ok === true,
+      chatType: chat?.result?.type || '',
+      chatError,
+      proxyUrl: proxyOptions.proxyUrl,
+      useProxy: proxyOptions.useProxy
+    };
   }
 
   async getQqBotAccessToken(appId, clientSecret, proxyOptions = null) {

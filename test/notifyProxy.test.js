@@ -57,6 +57,25 @@ test('消息推送代理独立保存，并且禁用时不会回退到账号或�
   assert.equal(networkClient.getEffectiveProxyUrl(barkProxy), '');
 });
 
+test('消息推送中的 socks5 地址会自动改为远端 DNS 的 socks5h', () => {
+  configManager.update({
+    notify: {
+      proxy: {
+        url: 'socks5://127.0.0.1:1080',
+        channels: { telegram: true }
+      }
+    }
+  });
+  assert.equal(
+    configManager.get().notify.proxy.url,
+    'socks5h://127.0.0.1:1080'
+  );
+  assert.equal(
+    new Notifier().getNotificationProxyOptions('telegram').proxyUrl,
+    'socks5h://127.0.0.1:1080'
+  );
+});
+
 test('已勾选推送代理但地址为空时拒绝保存配置', () => {
   assert.throws(
     () => configManager.update({
@@ -146,6 +165,8 @@ test('正式消息发送使用保存后的逐渠道代理设置', async () => {
     assert.equal(seenOptions?.useProxy, true);
     assert.equal(seenOptions?.proxyUrl, 'http://127.0.0.1:18889');
     assert.equal(seenOptions?.ignoreAccountProxy, true);
+    assert.equal(seenOptions?.data?.parse_mode, undefined);
+    assert.match(seenOptions?.data?.text || '', /任务完成[\s\S]*今日积分已完成/);
   } finally {
     networkClient.request = originalRequest;
   }
@@ -183,4 +204,83 @@ test('通知测试接口会透传当前表单中的推送代理设置', async t 
     value: 'device-key',
     proxy
   });
+});
+
+test('Telegram 错误会保留 API 返回的具体 description', async () => {
+  const notifier = new Notifier();
+  const originalRequest = networkClient.request;
+  const error = new Error('HTTP 400');
+  error.response = {
+    status: 400,
+    data: JSON.stringify({ description: 'Bad Request: chat not found' })
+  };
+  networkClient.request = async () => { throw error; };
+  try {
+    await assert.rejects(
+      notifier.sendTelegram('123:abc', '456', '标题', '正文'),
+      /Bad Request: chat not found \(HTTP 400\)/
+    );
+  } finally {
+    networkClient.request = originalRequest;
+  }
+});
+
+test('Telegram 只读检测在 Token 无效时也会返回具体 description', async () => {
+  const notifier = new Notifier();
+  const originalRequest = networkClient.request;
+  const error = new Error('HTTP 401');
+  error.response = {
+    status: 401,
+    data: JSON.stringify({ description: 'Unauthorized' })
+  };
+  networkClient.request = async () => { throw error; };
+  try {
+    await assert.rejects(
+      notifier.checkTelegram('123:invalid', '456', {
+        url: '',
+        channels: { telegram: false }
+      }),
+      /Unauthorized \(HTTP 401\)/
+    );
+  } finally {
+    networkClient.request = originalRequest;
+  }
+});
+
+test('Telegram 连接检测为只读请求并校验 Chat ID', async () => {
+  configManager.update({
+    notify: {
+      proxy: {
+        url: 'socks5://127.0.0.1:1080',
+        channels: { telegram: true }
+      }
+    }
+  });
+  const notifier = new Notifier();
+  const originalRequest = networkClient.request;
+  const calls = [];
+  networkClient.request = async options => {
+    calls.push(options);
+    if (options.url.endsWith('/getMe')) {
+      return { ok: true, result: { username: 'test_bot', first_name: 'Test' } };
+    }
+    if (options.url.includes('/getChat?')) {
+      return { ok: true, result: { type: 'private' } };
+    }
+    throw new Error('unexpected');
+  };
+  try {
+    const result = await notifier.checkTelegram('123:abc', '456', {
+      url: 'socks5://127.0.0.1:1080',
+      channels: { telegram: true }
+    });
+    assert.equal(result.botUsername, 'test_bot');
+    assert.equal(result.chatValid, true);
+    assert.equal(result.chatType, 'private');
+    assert.equal(calls.length, 2);
+    assert.ok(calls.every(call => call.proxyUrl === 'socks5h://127.0.0.1:1080'));
+    assert.ok(calls.every(call => call.ignoreAccountProxy === true));
+  } finally {
+    networkClient.request = originalRequest;
+  }
 });

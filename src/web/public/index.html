@@ -22,7 +22,7 @@
           <!-- 版本与状态复合胶囊 (结合更新检测与状态展示) -->
           <div class="version-status-pill status-idle" id="version-status-pill" title="系统状态: 后台定时就绪中 | 点击检查版本更新">
             <span class="status-dot"></span>
-            <span class="version-label" id="version-label">v1.10.11</span>
+            <span class="version-label" id="version-label">v1.10.12</span>
             <span class="update-indicator" id="update-indicator" style="display: none;">
               <span class="update-icon">🚀</span>
               <span class="update-text" id="update-text">有更新</span>
@@ -912,6 +912,7 @@
               <button type="button" id="btn-test-notify-proxy" class="btn btn-secondary btn-sm">测试代理</button>
             </div>
             <div id="test-notify-proxy-result" class="proxy-card-status"></div>
+            <small class="form-hint">SOCKS5 会自动使用远端 DNS（socks5h），避免 Telegram 域名被本地 DNS 污染。</small>
           </div>
           <div class="form-group">
             <div class="notify-channel-head">
@@ -983,8 +984,12 @@
             <div style="display: grid; grid-template-columns: 1.2fr 1fr auto; gap: 8px;">
               <input type="text" id="cfg-notify-tg-token" class="form-input" placeholder="Bot Token (例如 123456:ABC...)">
               <input type="text" id="cfg-notify-tg-chat" class="form-input" placeholder="Chat ID (例如 123456789)">
-              <button class="btn btn-secondary btn-sm" onclick="testNotifyChannel('telegram')">测试</button>
+              <div class="notify-test-actions">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-check-telegram">检测连接</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="testNotifyChannel('telegram')">测试发送</button>
+              </div>
             </div>
+            <div id="telegram-check-result" class="proxy-card-status"></div>
             <small class="form-hint">需要代理时请勾选右上角“使用推送代理”，不会自动继承积分任务代理。</small>
           </div>
           <div class="form-group">

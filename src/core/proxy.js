@@ -35,6 +35,17 @@ export function normalizeProxyUrl(raw) {
 }
 
 /**
+ * 消息推送经常需要访问被 DNS 污染拦截的第三方域名。
+ * SOCKS5 使用远端 DNS 可以避免容器本地解析到错误 IP 后触发证书域名错误。
+ */
+export function normalizeNotificationProxyUrl(raw) {
+  const normalized = normalizeProxyUrl(raw);
+  return normalized.startsWith('socks5://')
+    ? normalized.replace(/^socks5:/, 'socks5h:')
+    : normalized;
+}
+
+/**
  * Playwright 的 proxy 选项不接受把账号密码直接塞进 server 字段，
  * 这里拆成 server / username / password。
  */

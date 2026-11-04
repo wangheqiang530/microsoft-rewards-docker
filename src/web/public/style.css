@@ -3893,6 +3893,16 @@ body.account-column-resizing * {
   accent-color: var(--accent);
 }
 
+.notify-test-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.notify-test-actions .btn {
+  white-space: nowrap;
+}
+
 .guide-network-summary {
   margin-bottom: 14px;
   padding: 9px 11px;
@@ -4844,6 +4854,7 @@ body.account-column-resizing * {
   }
   .notify-proxy-input-row { flex-direction: column; }
   .notify-proxy-input-row .btn { width: 100%; }
+  .notify-test-actions { flex-wrap: wrap; }
   .run-hour-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 

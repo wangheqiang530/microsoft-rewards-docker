@@ -253,6 +253,7 @@ test('全局网络支持直连与默认代理二选一，向导测试使用选�
 test('消息推送提供独立代理和逐渠道代理开关', () => {
   assert.match(indexHtml, /id="cfg-notify-proxy-url"/);
   assert.match(indexHtml, /id="btn-test-notify-proxy"/);
+  assert.match(indexHtml, /id="btn-check-telegram"[^>]*>检测连接/);
   assert.match(indexHtml, /不读取、不复用任何积分账号或全局积分代理/);
   for (const channel of ['wework', 'dingding', 'feishu', 'bark', 'pushme', 'telegram', 'qqbot']) {
     assert.match(indexHtml, new RegExp(`id="cfg-notify-proxy-${channel}"`));
@@ -260,6 +261,8 @@ test('消息推送提供独立代理和逐渠道代理开关', () => {
   assert.match(appJs, /function readNotifyProxyConfig\(\)/);
   assert.match(appJs, /proxy: notifyProxy/);
   assert.match(appJs, /window\.testNotifyProxy/);
+  assert.match(appJs, /window\.checkTelegramConnection/);
+  assert.match(serverJs, /\/api\/notify\/telegram\/check/);
   assert.match(styleCss, /\.notify-proxy-panel/);
   assert.match(styleCss, /\.notify-proxy-toggle/);
 });

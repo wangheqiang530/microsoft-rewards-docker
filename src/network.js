@@ -383,7 +383,11 @@ class NetworkClient {
           continue;
         }
         const status = error.response ? `HTTP ${error.response.status}` : (error.code || error.message);
-        throw new Error(`${status}`);
+        const wrapped = new Error(`${status}`);
+        wrapped.code = error.code || '';
+        wrapped.response = error.response;
+        wrapped.cause = error;
+        throw wrapped;
       }
     }
 

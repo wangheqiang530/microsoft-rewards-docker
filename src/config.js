@@ -3,7 +3,7 @@ import path from 'path';
 import { DATA_DIR, writeFileAtomic } from './fsUtil.js';
 import { removeBrowserSession } from './core/browserSession.js';
 import { webIdentityKey } from './core/accountIdentity.js';
-import { normalizeProxyUrl, safeProxyId } from './core/proxy.js';
+import { normalizeNotificationProxyUrl, normalizeProxyUrl, safeProxyId } from './core/proxy.js';
 import {
   RUN_HOURS,
   buildTimeSlot,
@@ -367,7 +367,7 @@ class ConfigManager {
     for (const channel of NOTIFY_PROXY_CHANNELS) {
       channels[channel] = sourceChannels[channel] === true;
     }
-    const url = normalizeProxyUrl(source.url || source.proxyUrl || '');
+    const url = normalizeNotificationProxyUrl(source.url || source.proxyUrl || '');
     if (!url && Object.values(channels).some(Boolean)) {
       throw new Error('已启用消息推送代理，请先填写专用代理地址');
     }

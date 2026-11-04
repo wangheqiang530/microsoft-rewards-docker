@@ -29,7 +29,7 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const CURRENT_VERSION = '1.10.11';
+const CURRENT_VERSION = '1.10.12';
 
 let lastCpuInfo = os.cpus().map(c => c.times);
 
@@ -1467,6 +1467,21 @@ export function createServer() {
       res.json({ success: true, message: '测试消息发送成功' });
     } catch (e) {
       res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.post('/api/notify/telegram/check', async (req, res) => {
+    const value = req.body?.value && typeof req.body.value === 'object'
+      ? req.body.value
+      : {
+          botToken: req.body?.botToken,
+          chatId: req.body?.chatId
+        };
+    try {
+      const data = await notifier.checkTelegram(value.botToken, value.chatId, req.body?.proxy);
+      res.json({ success: true, data });
+    } catch (e) {
+      res.status(400).json({ success: false, message: e.message });
     }
   });
 

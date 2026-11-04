@@ -3,7 +3,7 @@
 **把微软积分日常，交给一台不休息的小容器。**
 基于 Docker + WebUI，适合 NAS、VPS 和家用服务器。多账号管理、每日任务、浏览器登录、代理与运行计划，都在一个网页里完成。
 
-[![Version](https://img.shields.io/badge/version-v1.10.11-blue.svg)](https://github.com/wangheqiang530/microsoft-rewards-docker/releases/tag/v1.10.11)
+[![Version](https://img.shields.io/badge/version-v1.10.12-blue.svg)](https://github.com/wangheqiang530/microsoft-rewards-docker/releases/tag/v1.10.12)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com/)
 [![Node.js](https://img.shields.io/badge/Node.js-20+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
@@ -150,6 +150,7 @@ docker run -d \
 每套代理都可以测试出口 IP、归属地、延迟和代理连通性。默认开启中国大陆地区保护，检测到境外出口时会阻止任务，降低国区账号触发风控的概率。
 
 消息推送另有一套完全独立的专用代理，不复用积分任务或账号代理。可以在每个推送渠道旁单独勾选是否启用该推送代理。
+消息推送中的 `socks5://` 会自动按 `socks5h://` 使用远端 DNS，避免 Telegram 等域名被容器本地 DNS 污染。Telegram 还提供不发送消息的“检测连接”按钮，可查看 Bot、Chat ID 与真实 API 延迟。
 
 ---
 

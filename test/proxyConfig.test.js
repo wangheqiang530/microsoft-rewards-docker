@@ -25,7 +25,11 @@ const { default: configManager } = await import('../src/config.js');
 const { default: rewardsApi } = await import('../src/core/api.js');
 const { default: authManager } = await import('../src/core/auth.js');
 const { default: networkClient } = await import('../src/network.js');
-const { normalizeProxyUrl, toBrowserProxy } = await import('../src/core/proxy.js');
+const {
+  normalizeNotificationProxyUrl,
+  normalizeProxyUrl,
+  toBrowserProxy
+} = await import('../src/core/proxy.js');
 const { createServer: createApp } = await import('../src/web/server.js');
 const { resolveLoginProxy } = await import('../src/core/microsoftLoginWindow.js');
 
@@ -50,6 +54,14 @@ test('代理 URL 与浏览器代理参数会规范化', () => {
     password: 'pass'
   });
   assert.throws(() => normalizeProxyUrl('ftp://127.0.0.1:21'), /仅支持/);
+  assert.equal(
+    normalizeNotificationProxyUrl('socks5://127.0.0.1:1080'),
+    'socks5h://127.0.0.1:1080'
+  );
+  assert.equal(
+    normalizeProxyUrl('socks5://127.0.0.1:1080'),
+    'socks5://127.0.0.1:1080'
+  );
 });
 
 test('账号可独立选择跟随全局、直连或指定代理', () => {

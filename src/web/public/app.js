@@ -1171,6 +1171,9 @@ function initUIEvents() {
   document.getElementById('btn-test-notify-proxy')?.addEventListener('click', () => {
     window.testNotifyProxy();
   });
+  document.getElementById('btn-check-telegram')?.addEventListener('click', () => {
+    window.checkTelegramConnection();
+  });
 
   // 配置中心：切换账号编辑
   document.getElementById('cfg-account-select')?.addEventListener('change', (e) => {
@@ -3062,7 +3065,7 @@ let taskRunning = false;
 function refreshVersionPillTooltip() {
   const pill = document.getElementById('version-status-pill');
   if (!pill) return;
-  const current = updateInfo?.currentVersion || '1.10.11';
+  const current = updateInfo?.currentVersion || '1.10.12';
   const statusLine = taskRunning
     ? '🟦 系统状态：正在执行自动化任务打卡中…'
     : '🟢 系统状态：后台定时就绪中';
@@ -3117,8 +3120,8 @@ async function handleVersionCheckClick() {
     openEpicActionModal(
       '版本检查',
       failed
-        ? `当前运行版本 v${updateInfo?.currentVersion || '1.10.11'}，但无法连接 GitHub 检查更新。`
-        : `当前运行版本 v${updateInfo?.currentVersion || '1.10.11'} 已是最新版本。`,
+        ? `当前运行版本 v${updateInfo?.currentVersion || '1.10.12'}，但无法连接 GitHub 检查更新。`
+        : `当前运行版本 v${updateInfo?.currentVersion || '1.10.12'} 已是最新版本。`,
       ['获取远端版本', '比较版本号', failed ? '检查失败' : '确认无需更新'],
       3
     );
@@ -5643,6 +5646,11 @@ function populateSettingsForm() {
     if (input) input.checked = c.notify?.proxy?.channels?.[channel] === true;
   }
   setNotifyProxyStatus('', '');
+  const telegramCheck = document.getElementById('telegram-check-result');
+  if (telegramCheck) {
+    telegramCheck.className = 'proxy-card-status';
+    telegramCheck.textContent = '';
+  }
 
   // 液态视觉与背景
   const visualVal = c.visual || JSON.parse(localStorage.getItem('msr_visual_config') || 'null') || DEFAULT_VISUAL_CONFIG;
@@ -6128,6 +6136,51 @@ window.testNotifyProxy = async function() {
     );
   } catch (e) {
     setNotifyProxyStatus('err', `❌ 测试请求失败：${escapeHtml(e.message)}`);
+  }
+};
+
+window.checkTelegramConnection = async function() {
+  const botToken = document.getElementById('cfg-notify-tg-token')?.value.trim() || '';
+  const chatId = document.getElementById('cfg-notify-tg-chat')?.value.trim() || '';
+  const proxy = readNotifyProxyConfig();
+  const result = document.getElementById('telegram-check-result');
+  const setResult = (kind, text) => {
+    if (!result) return;
+    result.className = `proxy-card-status${kind ? ` ${kind}` : ''}`;
+    result.textContent = text;
+  };
+  if (!botToken) {
+    setResult('err', '❌ 请先填写 Telegram Bot Token');
+    return;
+  }
+  if (proxy.channels.telegram && !proxy.url) {
+    setResult('err', '❌ 已启用推送代理，但尚未填写代理地址');
+    return;
+  }
+  setResult('', '⏳ 正在只读检测 Telegram Bot 与 Chat ID...');
+  try {
+    const res = await fetch('/api/notify/telegram/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        value: { botToken, chatId },
+        proxy
+      })
+    }).then(r => r.json());
+    if (!res.success) {
+      setResult('err', `❌ ${res.message || 'Telegram 连接检测失败'}`);
+      return;
+    }
+    const data = res.data || {};
+    const chatText = data.chatValid
+      ? `Chat ID 可用（${data.chatType || '未知类型'}）`
+      : `Chat ID 不可用：${data.chatError || '未填写'}`;
+    setResult(
+      data.chatValid ? 'ok' : 'warn',
+      `Bot @${data.botUsername || 'unknown'} · Telegram API ${Number(data.latencyMs || 0)} ms · ${chatText}`
+    );
+  } catch (e) {
+    setResult('err', `❌ 检测请求失败：${e.message}`);
   }
 };
 
