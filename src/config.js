@@ -17,6 +17,7 @@ const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 export const SECRET_PLACEHOLDER = '__MSR_SECRET_KEEP__';
 export const SECRET_CLEAR = '__MSR_SECRET_CLEAR__';
 const SECRET_ACCOUNT_FIELDS = ['cookie', 'authCodeUrl', 'refreshToken', 'accessToken'];
+const NOTIFY_PROXY_CHANNELS = ['wework', 'dingding', 'feishu', 'bark', 'pushme', 'telegram', 'qqbot'];
 
 const DEFAULT_CONFIG = {
   accounts: [
@@ -84,6 +85,18 @@ const DEFAULT_CONFIG = {
     cron: '*/25 * * * *'
   },
   notify: {
+    proxy: {
+      url: '',
+      channels: {
+        wework: false,
+        dingding: false,
+        feishu: false,
+        bark: false,
+        pushme: false,
+        telegram: false,
+        qqbot: false
+      }
+    },
     wework: '',
     dingding: '',
     feishu: '',
@@ -343,6 +356,22 @@ class ConfigManager {
         url
       };
     });
+  }
+
+  normalizeNotifyProxyConfig(proxy = {}) {
+    const source = proxy && typeof proxy === 'object' ? proxy : {};
+    const sourceChannels = source.channels && typeof source.channels === 'object'
+      ? source.channels
+      : {};
+    const channels = {};
+    for (const channel of NOTIFY_PROXY_CHANNELS) {
+      channels[channel] = sourceChannels[channel] === true;
+    }
+    const url = normalizeProxyUrl(source.url || source.proxyUrl || '');
+    if (!url && Object.values(channels).some(Boolean)) {
+      throw new Error('已启用消息推送代理，请先填写专用代理地址');
+    }
+    return { url, channels };
   }
 
   /**
@@ -835,6 +864,12 @@ class ConfigManager {
     const patch = structuredClone(partial || {});
     delete patch.scheduleConflicts;
     this.scheduleConflicts = [];
+
+    if (patch.notify?.proxy) {
+      const currentProxy = this.config.notify?.proxy || {};
+      const mergedProxy = this.mergeDeep(structuredClone(currentProxy), patch.notify.proxy);
+      patch.notify.proxy = this.normalizeNotifyProxyConfig(mergedProxy);
+    }
 
     // 如果更新的是单账号字段 account，同步更新到第一个账号或指定账号
     if (patch.account && Array.isArray(this.config.accounts) && this.config.accounts.length > 0) {
