@@ -20,7 +20,9 @@ import {
   questSubtaskKey,
   isDailyQuestSubtask,
   isQuestSubtaskCoolingDown,
-  buildQuestSubtaskUpdate
+  buildQuestSubtaskUpdate,
+  resolveQuestTargetUrl,
+  evaluateQuestAdvance
 } from './questStatus.js';
 import {
   SPECIAL_ACTIVITIES,
@@ -971,6 +973,55 @@ class BrowserManager extends EventEmitter {
   }
 
   /**
+   * 读取打孔卡页头里的总进度（例如“状态: 2/5 个任务”）。
+   * 这是页面级权威进度，不能被子任务扫描结果的抖动替代。
+   */
+  async readQuestPageProgress(page, options = {}) {
+    const attempts = Math.max(1, Math.min(6, Number(options.attempts) || 1));
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        const text = await page.evaluate(() => document.body?.innerText || '');
+        const patterns = [
+          /(?:状态|Status)\s*[:：]?\s*(\d+)\s*\/\s*(\d+)\s*(?:个任务|tasks?)/i,
+          /(\d+)\s*\/\s*(\d+)\s*(?:个任务|tasks?)/i
+        ];
+        for (const pattern of patterns) {
+          const match = String(text || '').match(pattern);
+          if (!match) continue;
+          const progress = Number(match[1]);
+          const max = Number(match[2]);
+          if (Number.isFinite(progress) && Number.isFinite(max) && max > 0) {
+            return { progress, max, done: progress >= max };
+          }
+        }
+      } catch {}
+      if (attempt < attempts - 1) await this.delay(900);
+    }
+    return null;
+  }
+
+  /** 从官网任务列表读取当前打孔卡的最新总进度。 */
+  async readOfficialQuestProgress(quest = {}) {
+    const quests = await rewardsApi.getQuestPunchCards().catch(() => null);
+    if (!Array.isArray(quests)) return null;
+    const targetId = String(quest.questId || '');
+    const targetTitle = String(quest.title || '').trim();
+    const matched = quests.find(item => (
+      (targetId && String(item.questId || '') === targetId)
+      || (targetTitle && String(item.title || '').trim() === targetTitle)
+    ));
+    if (!matched) return null;
+    const progress = Number(matched.progress);
+    const max = Number(matched.max);
+    if (!Number.isFinite(progress)) return null;
+    return {
+      progress,
+      max: Number.isFinite(max) && max > 0 ? max : 0,
+      done: matched.done === true || (max > 0 && progress >= max)
+    };
+  }
+
+  /**
    * 执行一个打孔卡子任务。
    *
    * 搜索类动作必须真正提交一次 Bing 搜索；外部浏览类动作只做安全的停留和滚动。
@@ -978,16 +1029,18 @@ class BrowserManager extends EventEmitter {
    */
   async executeQuestSubtaskAction(context, page, quest, target, accName = '') {
     const beforeUrl = String(page.url() || '');
-    const popupPromise = context.waitForEvent('page', { timeout: 7000 }).catch(() => null);
+    const targetUrl = resolveQuestTargetUrl(target.href, quest.url || beforeUrl);
+    const popupPromise = context.waitForEvent('page', { timeout: 9000 }).catch(() => null);
     let clicked = false;
+    let navigationFallback = false;
     try {
       await humanClick(page.locator(`[data-msr-subtask="${target.index}"]`), { page, timeout: 8000 });
       clicked = true;
     } catch (e) {
-      if (target.href && /^https?:\/\//i.test(target.href)) {
+      if (targetUrl) {
         const fallback = await context.newPage().catch(() => null);
         if (fallback) {
-          await fallback.goto(target.href, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
+          await fallback.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
           await this.delay(rewardsApi.randomRange(2500, 4500));
           await fallback.close().catch(() => {});
           clicked = true;
@@ -996,15 +1049,28 @@ class BrowserManager extends EventEmitter {
       if (!clicked) throw e;
     }
 
-    const popup = await Promise.race([popupPromise, this.delay(2500).then(() => null)]);
+    const popup = await Promise.race([popupPromise, this.delay(5500).then(() => null)]);
     let landingPage = popup || null;
     if (!landingPage) {
       const afterUrl = String(page.url() || '');
       if (afterUrl !== beforeUrl) landingPage = page;
     }
+
+    // 有些外链点击会成功但浏览器不触发 popup，或链接元素被遮罩层接管。
+    // 浏览类任务显式打开目标 URL，避免“看起来点了但任务页从未被访问”。
+    if (!landingPage && targetUrl && ['visit', 'quiz', 'reward', 'unknown'].includes(target.kind)) {
+      landingPage = await context.newPage().catch(() => null);
+      if (landingPage) {
+        navigationFallback = true;
+        await landingPage.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
+      }
+    }
+
     if (landingPage) {
+      await landingPage.bringToFront?.().catch(() => {});
       await landingPage.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => {});
-      await this.delay(rewardsApi.randomRange(1500, 2500));
+      await landingPage.waitForLoadState('load', { timeout: 15000 }).catch(() => {});
+      await this.delay(rewardsApi.randomRange(3500, 5500));
     }
 
     let searchResult = null;
@@ -1029,8 +1095,8 @@ class BrowserManager extends EventEmitter {
         await searchPage.close().catch(() => {});
       }
     } else if (landingPage) {
-      await humanWheel(landingPage, { times: 1, min: 350, max: 800 }).catch(() => {});
-      await this.delay(rewardsApi.randomRange(3500, 6000));
+      await humanWheel(landingPage, { times: 2, min: 350, max: 800 }).catch(() => {});
+      await this.delay(rewardsApi.randomRange(5000, 7500));
       if (landingPage !== page && !landingPage.isClosed?.()) {
         await landingPage.close().catch(() => {});
       }
@@ -1039,9 +1105,13 @@ class BrowserManager extends EventEmitter {
     }
 
     // 回到打孔卡页面，等待官网写入状态后再由调用方扫描。
-    await page.goto(quest.url, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-    await this.delay(rewardsApi.randomRange(2500, 4500));
-    return { searchResult };
+    await page.goto(quest.url || beforeUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    await this.delay(rewardsApi.randomRange(3000, 5000));
+    return {
+      searchResult,
+      landingUrl: String(landingPage?.url?.() || ''),
+      navigationFallback
+    };
   }
 
   /**
@@ -1080,7 +1150,8 @@ class BrowserManager extends EventEmitter {
         });
 
         try {
-          await page.goto(quest.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          const questUrl = quest.url || page.url();
+          await page.goto(questUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
           await this.delay(2500);
           const pageTitle = (await page.title().catch(() => '')) || questName;
           const displayName = pageTitle.replace(/\s*[–-]\s*Microsoft Rewards\s*$/i, '').trim() || questName;
@@ -1093,7 +1164,7 @@ class BrowserManager extends EventEmitter {
 
           while (!this.shouldStop && roundAttempted < 20) {
             const subtasks = await this.scanQuestSubtasks(page);
-            const progressScoreBefore = subtasks.reduce((sum, item) => sum + Number(item.progress?.progress || 0), 0);
+            const pageProgressBefore = await this.readQuestPageProgress(page, { attempts: 2 });
             const target = subtasks.find(item => {
               if (item.completed || item.locked) return false;
               if (attemptedThisRun.has(item.key)) return false;
@@ -1113,6 +1184,9 @@ class BrowserManager extends EventEmitter {
             attemptedThisRun.add(target.key);
             const stepLabel = target.title || target.actionText || `第 ${target.index} 项`;
             const progressBefore = target.progress?.progress ?? null;
+            const officialProgressBefore = Number.isFinite(Number(pageProgressBefore?.progress))
+              ? Number(pageProgressBefore.progress)
+              : Number(quest.progress);
             logger.log(
               '🧩',
               `执行打孔卡「${displayName}」子任务 [${target.index}]: ${stepLabel} (${target.actionText}, ${target.kind})`,
@@ -1126,7 +1200,13 @@ class BrowserManager extends EventEmitter {
 
             let actionResult = {};
             try {
-              actionResult = await this.executeQuestSubtaskAction(context, page, quest, target, accName);
+              actionResult = await this.executeQuestSubtaskAction(
+                context,
+                page,
+                { ...quest, url: questUrl },
+                target,
+                accName
+              );
             } catch (e) {
               logger.log('🟡', `打孔卡子任务操作失败: ${stepLabel}：${e.message}`, '', accName);
             }
@@ -1135,23 +1215,51 @@ class BrowserManager extends EventEmitter {
             const afterSubtasks = await this.scanQuestSubtasks(page);
             const afterTarget = afterSubtasks.find(item => item.key === target.key)
               || afterSubtasks.find(item => item.title === target.title && item.kind === target.kind);
-            const progressScoreAfter = afterSubtasks.reduce((sum, item) => sum + Number(item.progress?.progress || 0), 0);
-            const progressAfter = afterTarget?.progress?.progress ?? (progressScoreAfter > progressScoreBefore ? progressScoreAfter : null);
-            const advanced = !!afterTarget && (
-              afterTarget.completed
-              || (progressBefore !== null && progressAfter !== null && progressAfter > progressBefore)
-            ) || progressScoreAfter > progressScoreBefore;
+            const targetProgressAfter = Number.isFinite(Number(afterTarget?.progress?.progress))
+              ? Number(afterTarget.progress.progress)
+              : null;
+            const pageProgressAfter = await this.readQuestPageProgress(page, { attempts: 3 });
+            let officialProgressAfter = Number.isFinite(Number(pageProgressAfter?.progress))
+              ? Number(pageProgressAfter.progress)
+              : null;
+            const officialProgressMax = Number(pageProgressAfter?.max || pageProgressBefore?.max || 0) || 0;
+
+            // 页面头没有及时刷新时，再用官网任务列表兜底核验一次。
+            if (!Number.isFinite(officialProgressBefore)
+              || !Number.isFinite(officialProgressAfter)
+              || officialProgressAfter <= officialProgressBefore) {
+              const apiProgress = await this.readOfficialQuestProgress(quest);
+              if (apiProgress) officialProgressAfter = apiProgress.progress;
+            }
+
+            const verification = evaluateQuestAdvance({
+              targetCompletedBefore: target.completed === true,
+              targetCompletedAfter: afterTarget?.completed === true,
+              targetProgressBefore: progressBefore,
+              targetProgressAfter,
+              officialProgressBefore,
+              officialProgressAfter,
+              officialProgressKnown: Number.isFinite(officialProgressBefore)
+                && Number.isFinite(officialProgressAfter)
+            });
+            const advanced = verification.advanced;
+            const progressAfter = Number.isFinite(officialProgressAfter)
+              ? officialProgressAfter
+              : targetProgressAfter;
             const activated = target.kind === 'activate' && !!afterTarget && afterTarget.kind !== 'activate';
             const daily = isDailyQuestSubtask(target);
             const cooldownMs = advanced
               ? (daily ? 24 * 60 * 60 * 1000 : 0)
-              : (target.kind === 'search' ? 24 * 60 * 60 * 1000 : (target.kind === 'visit' ? 2 * 60 * 60 * 1000 : 6 * 60 * 60 * 1000));
+              : (target.kind === 'search'
+                  ? 24 * 60 * 60 * 1000
+                  : (target.kind === 'visit' ? 30 * 60 * 1000 : 2 * 60 * 60 * 1000));
             const result = advanced ? 'advanced' : (activated ? 'activated' : 'no-change');
             subtaskUpdates[target.key] = buildQuestSubtaskUpdate({
               previous: runtimeState[target.key] || null,
               result,
               progressBefore,
               progressAfter,
+              verification: verification.verifiedBy,
               cooldownMs
             });
 
@@ -1166,7 +1274,10 @@ class BrowserManager extends EventEmitter {
                 kind: target.kind,
                 verified: true
               });
-              logger.log('✅', `打孔卡「${displayName}」子任务官网已确认: ${stepLabel}`, '', accName);
+              const progressText = Number.isFinite(officialProgressAfter)
+                ? ` (总进度 ${officialProgressAfter}${officialProgressMax > 0 ? `/${officialProgressMax}` : ''})`
+                : '';
+              logger.log('✅', `打孔卡「${displayName}」子任务官网已确认: ${stepLabel}${progressText}`, '', accName);
             } else if (activated) {
               logger.log('✅', `打孔卡「${displayName}」已激活，继续检查是否出现搜索任务`, '', accName);
             } else {

@@ -75,7 +75,7 @@ test('诊断报告包含环境、任务状态和脱敏日志，不泄漏原始�
   ].join('\n'));
 
   const report = buildDiagnosticReport({
-    version: '1.10.12',
+    version: '1.10.13',
     now,
     dataDir: dir,
     accounts: [{
@@ -116,7 +116,7 @@ test('诊断报告包含环境、任务状态和脱敏日志，不泄漏原始�
   });
 
   assert.match(report.content, /Microsoft Rewards Docker 诊断日志/);
-  assert.match(report.content, /"version": "1\.10\.12"/);
+  assert.match(report.content, /"version": "1\.10\.13"/);
   assert.match(report.content, /账号-1/);
   assert.match(report.content, /每日活动集 \(Daily Set\)/);
   assert.match(report.content, /最近 24 小时日志/);

@@ -61,8 +61,87 @@ export function isDailyQuestSubtask({ kind = '', rawText = '' } = {}) {
 }
 
 export function isQuestSubtaskCoolingDown(state, now = Date.now()) {
+  // 旧版本会把 hydration 后多扫描出的子任务当成“已推进”，但 progressAfter
+  // 仍是 null。这类未经验证的历史冷却不能继续挡住修复后的任务。
+  const legacyUnverifiedAdvance = state?.lastResult === 'advanced'
+    && !state?.lastVerification
+    && (state?.lastProgressAfter === null || state?.lastProgressAfter === undefined);
+  if (legacyUnverifiedAdvance) return false;
   const until = Number(state?.cooldownUntil || 0);
   return Number.isFinite(until) && until > now;
+}
+
+/**
+ * 把任务卡片里的 href 归一化为可导航 URL。
+ * 官网有时返回 "bing.com/search..." 这种缺少协议的地址。
+ */
+export function resolveQuestTargetUrl(href = '', baseUrl = 'https://rewards.bing.com') {
+  const value = String(href || '').trim();
+  if (!value || /^(?:#|javascript:)/i.test(value)) return '';
+  if (/^https?:\/\//i.test(value)) return value;
+  if (/^\/\//.test(value)) return `https:${value}`;
+  if (/^(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?(?:[/?#]|$)/i.test(value)) {
+    return `https://${value}`;
+  }
+  try {
+    return new URL(value, baseUrl || 'https://rewards.bing.com').href;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 打孔卡是否真的推进。
+ *
+ * 页面 hydration 后可能凭空多扫描出几个子任务，旧实现把“子任务进度总和”
+ * 变大都当成完成，导致总进度仍是 1/5 却给第二步加了 24 小时冷却。
+ * 有任务总进度时必须以总进度为准；总进度不可用时才接受当前子任务自身变化。
+ */
+export function evaluateQuestAdvance({
+  targetCompletedBefore = false,
+  targetCompletedAfter = false,
+  targetProgressBefore = null,
+  targetProgressAfter = null,
+  officialProgressBefore = null,
+  officialProgressAfter = null,
+  officialProgressKnown = false
+} = {}) {
+  const optionalNumber = (value) => (
+    value === null || value === undefined || value === '' ? null : Number(value)
+  );
+  const officialBefore = optionalNumber(officialProgressBefore);
+  const officialAfter = optionalNumber(officialProgressAfter);
+  const hasOfficialProgress = officialProgressKnown === true
+    && Number.isFinite(officialBefore)
+    && Number.isFinite(officialAfter);
+  const officialAdvanced = hasOfficialProgress && officialAfter > officialBefore;
+
+  const targetBefore = optionalNumber(targetProgressBefore);
+  const targetAfter = optionalNumber(targetProgressAfter);
+  const targetProgressAdvanced = Number.isFinite(targetBefore)
+    && Number.isFinite(targetAfter)
+    && targetAfter > targetBefore;
+  const targetCompletedNow = targetCompletedBefore !== true && targetCompletedAfter === true;
+
+  if (hasOfficialProgress) {
+    return {
+      advanced: officialAdvanced,
+      officialAdvanced,
+      targetProgressAdvanced,
+      targetCompletedNow,
+      verifiedBy: officialAdvanced ? 'official-progress' : ''
+    };
+  }
+
+  return {
+    advanced: targetProgressAdvanced || targetCompletedNow,
+    officialAdvanced: false,
+    targetProgressAdvanced,
+    targetCompletedNow,
+    verifiedBy: targetProgressAdvanced
+      ? 'subtask-progress'
+      : (targetCompletedNow ? 'subtask-completed' : '')
+  };
 }
 
 export function buildQuestSubtaskUpdate({
@@ -70,6 +149,7 @@ export function buildQuestSubtaskUpdate({
   result = 'no-change',
   progressBefore = null,
   progressAfter = null,
+  verification = '',
   now = Date.now(),
   cooldownMs = 0
 } = {}) {
@@ -79,6 +159,7 @@ export function buildQuestSubtaskUpdate({
     lastResult: result,
     lastProgressBefore: progressBefore,
     lastProgressAfter: progressAfter,
+    lastVerification: result === 'advanced' ? String(verification || '') : '',
     lastVerifiedAt: result === 'advanced' ? now : (previous?.lastVerifiedAt || 0),
     cooldownUntil: cooldownMs > 0 ? now + cooldownMs : 0,
     attempts: Math.max(0, Number(previous?.attempts || 0)) + 1

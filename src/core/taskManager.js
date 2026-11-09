@@ -817,16 +817,27 @@ export class TaskManager {
 
         // 2.1 同步移动端 DAPI 的 sapphire 每日活动与连签状态。
         // 新版 App 的这三张任务不保证出现在 Web /earn 或 Dashboard streak 中。
+        let appCheckInMismatchMessage = '';
         if (accCfg.refreshToken && mobileTrusted) {
           const appPromotions = await rewardsApi.getAppPromotions().catch(() => null);
           if (Array.isArray(appPromotions)) {
             const dapiCheckIn = getAppCheckInStatusFromPromotions(appPromotions);
             const currentAppStreak = info.streaks?.bingapp;
-            if (dapiCheckIn && (dapiCheckIn.isCurrentDayCompleted || !currentAppStreak?.isCurrentDayCompleted)) {
+            const webStatusIsExplicit = currentAppStreak
+              && typeof currentAppStreak.isCurrentDayCompleted === 'boolean';
+            if (dapiCheckIn && !webStatusIsExplicit) {
               info.streaks = {
                 ...(info.streaks || {}),
                 bingapp: dapiCheckIn
               };
+            } else if (dapiCheckIn && webStatusIsExplicit
+              && dapiCheckIn.isCurrentDayCompleted !== currentAppStreak.isCurrentDayCompleted) {
+              appCheckInMismatchMessage = `DAPI 返回 ${dapiCheckIn.completedDays || 0}/7，网页端显示 ${currentAppStreak.completedDays || 0}/7，已按网页端状态显示`;
+              logger.log(
+                '🟡',
+                appCheckInMismatchMessage,
+                accCfg.name || accountId
+              );
             }
 
             const sapphirePromotions = appPromotions.filter(isSapphireAppPromotion);
@@ -1001,20 +1012,23 @@ export class TaskManager {
         const signTask = accStats.tasks.sign;
         if (appStreak && signTask) {
           if (appStreak.isCurrentDayCompleted === true) {
-            accStats.tasks.sign = this.mergeMonotonicTask(signTask, {
+            accStats.tasks.sign = {
               ...signTask,
               progress: 1,
               max: 1,
               points: signTask.points || 10,
-              done: true
-            });
+              done: true,
+              statusMessage: appCheckInMismatchMessage
+            };
           } else if (appStreak.isCurrentDayCompleted === false) {
-            accStats.tasks.sign = this.mergeMonotonicTask(signTask, {
+            accStats.tasks.sign = {
               ...signTask,
               progress: 0,
               max: 1,
-              done: false
-            });
+              points: 0,
+              done: false,
+              statusMessage: appCheckInMismatchMessage
+            };
           }
         }
 
@@ -1024,13 +1038,13 @@ export class TaskManager {
           const dsTotal = Number(dsStreak.activitiesTotal);
           const dsDone = Math.min(Number(dsStreak.activitiesCompleted || 0), dsTotal);
           const dsFinished = dsDone >= dsTotal;
-          accStats.tasks.dailySet = this.mergeMonotonicTask(dsTask, {
+          accStats.tasks.dailySet = {
             ...dsTask,
             max: dsTotal,
             progress: dsFinished ? dsTotal : dsDone,
             points: dsFinished ? (dsTask.points || 30) : 0,
             done: dsFinished
-          });
+          };
         }
 
         // 今日已增积分：以官网「今日积分」为准，取不到才回退到余额差
@@ -1758,12 +1772,11 @@ export class TaskManager {
       if (taskKey === 'sign') {
         const info = await rewardsApi.getRewardsInfo(1).catch(() => null);
         const webAppStatus = info?.streaks?.bingapp;
-        const dapiAppStatus = webAppStatus?.isCurrentDayCompleted
-          ? null
-          : await rewardsApi.getAppCheckInStatus({ allowWebFallback: false }).catch(() => null);
-        const appStatus = webAppStatus?.isCurrentDayCompleted
+        const webStatusIsExplicit = webAppStatus
+          && typeof webAppStatus.isCurrentDayCompleted === 'boolean';
+        const appStatus = webStatusIsExplicit
           ? webAppStatus
-          : (dapiAppStatus || webAppStatus);
+          : await rewardsApi.getAppCheckInStatus({ allowWebFallback: false }).catch(() => null);
         if (appStatus?.isCurrentDayCompleted) {
           result.alreadyDone = true;
           result.message = `今日已签到（官网 App 连签 ${appStatus.completedDays || 0}/7 天）`;
