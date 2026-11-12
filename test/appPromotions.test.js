@@ -146,7 +146,7 @@ test('Web 缺少连签模型时使用 DAPI 签到状态兜底', async () => {
   }
 });
 
-test('Web 连签状态明确为 false 时以网页端为准，不被 DAPI 覆盖', async () => {
+test('DAPI 已确认今日签到时，网页端滞后的 0/7 不能覆盖完成状态', async () => {
   const originals = {
     getRewardsInfo: rewardsApi.getRewardsInfo,
     getAppPromotions: rewardsApi.getAppPromotions,
@@ -172,8 +172,10 @@ test('Web 连签状态明确为 false 时以网页端为准，不被 DAPI 覆盖
   networkClient.request = async () => '';
   try {
     const status = await rewardsApi.getAppCheckInStatus();
-    assert.equal(status.isCurrentDayCompleted, false);
-    assert.equal(status.completedDays, 0);
+    assert.equal(status.isCurrentDayCompleted, true);
+    assert.equal(status.completedDays, 3);
+    assert.equal(status.source, 'dapi');
+    assert.equal(status.webStatusMismatch, true);
   } finally {
     rewardsApi.getRewardsInfo = originals.getRewardsInfo;
     rewardsApi.getAppPromotions = originals.getAppPromotions;

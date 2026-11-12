@@ -25,7 +25,8 @@ import {
 import {
   getAppCheckInStatusFromPromotions,
   getPendingSapphireAppPromotions,
-  isSapphireAppPromotion
+  isSapphireAppPromotion,
+  resolveAppCheckInStatus
 } from './promotionSources.js';
 import { normalizeAccountRunHours } from './scheduleWindow.js';
 import { DATA_DIR, writeFileAtomic } from '../fsUtil.js';
@@ -823,16 +824,15 @@ export class TaskManager {
           if (Array.isArray(appPromotions)) {
             const dapiCheckIn = getAppCheckInStatusFromPromotions(appPromotions);
             const currentAppStreak = info.streaks?.bingapp;
-            const webStatusIsExplicit = currentAppStreak
-              && typeof currentAppStreak.isCurrentDayCompleted === 'boolean';
-            if (dapiCheckIn && !webStatusIsExplicit) {
+            const resolvedCheckIn = resolveAppCheckInStatus(currentAppStreak, dapiCheckIn);
+            if (resolvedCheckIn) {
               info.streaks = {
                 ...(info.streaks || {}),
-                bingapp: dapiCheckIn
+                bingapp: resolvedCheckIn
               };
-            } else if (dapiCheckIn && webStatusIsExplicit
-              && dapiCheckIn.isCurrentDayCompleted !== currentAppStreak.isCurrentDayCompleted) {
-              appCheckInMismatchMessage = `DAPI 返回 ${dapiCheckIn.completedDays || 0}/7，网页端显示 ${currentAppStreak.completedDays || 0}/7，已按网页端状态显示`;
+            }
+            if (resolvedCheckIn?.webStatusMismatch) {
+              appCheckInMismatchMessage = `DAPI 已确认今日签到（${dapiCheckIn.completedDays || 0}/7），网页端连签尚未同步`;
               logger.log(
                 '🟡',
                 appCheckInMismatchMessage,
@@ -1785,19 +1785,34 @@ export class TaskManager {
       if (taskKey === 'sign') {
         const info = await rewardsApi.getRewardsInfo(1).catch(() => null);
         const webAppStatus = info?.streaks?.bingapp;
-        const webStatusIsExplicit = webAppStatus
-          && typeof webAppStatus.isCurrentDayCompleted === 'boolean';
-        const appStatus = webStatusIsExplicit
-          ? webAppStatus
-          : await rewardsApi.getAppCheckInStatus({ allowWebFallback: false }).catch(() => null);
+        let binding = null;
+        let dapiAppStatus = null;
+        if (acc.refreshToken && webAppStatus?.isCurrentDayCompleted !== true) {
+          binding = await this.checkMobileAccountBinding(
+            acc,
+            toOptionalFiniteNumber(info?.webBalance)
+          );
+          if (binding.tokenOk && !binding.mismatch && binding.verified !== false) {
+            dapiAppStatus = await rewardsApi
+              .getAppCheckInStatus({ allowWebFallback: false })
+              .catch(() => null);
+          }
+        }
+        const appStatus = resolveAppCheckInStatus(webAppStatus, dapiAppStatus);
         if (appStatus?.isCurrentDayCompleted) {
           result.alreadyDone = true;
-          result.message = `今日已签到（官网 App 连签 ${appStatus.completedDays || 0}/7 天）`;
+          result.message = `今日已签到（App 连签 ${appStatus.completedDays || 0}/7 天）`;
+          result.details.push(
+            appStatus.source === 'dapi'
+              ? 'DAPI 已确认今日签到，正在同步本地任务状态'
+              : '官网已确认今日签到'
+          );
+          await this.syncAccountOfficialStatus(acc, { owned: true });
         } else {
           let points = 0;
           let appCheckInConfirmed = false;
           const webBalance = toOptionalFiniteNumber(info?.webBalance);
-          const binding = await this.checkMobileAccountBinding(acc, webBalance);
+          binding = binding || await this.checkMobileAccountBinding(acc, webBalance);
           if (binding.mismatch) {
             result.hadFailure = true;
             result.details.push(binding.message);

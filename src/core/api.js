@@ -19,7 +19,8 @@ import {
   extractDailySetCardsFromDashboard,
   getAppCheckInStatusFromPromotions,
   isAppReadPromotion,
-  normalizeAppPromotions
+  normalizeAppPromotions,
+  resolveAppCheckInStatus
 } from './promotionSources.js';
 import {
   PC_USER_AGENT,
@@ -1266,18 +1267,12 @@ export class RewardsApi {
           }
         } catch {}
       }
-      // 网页端是用户实际看到的 Rewards 状态，明确 true/false 都必须优先。
-      // DAPI 的 check-in promotion 可能属于另一个 App 功能，甚至返回 5/7，
-      // 不能再覆盖网页端明确显示的 0/7。
-      if (webStatus && typeof webStatus.isCurrentDayCompleted === 'boolean') {
-        return webStatus;
-      }
     }
 
     // 新版 App 的连签状态可能只存在于 DAPI promotion，Web Flight 里没有模型。
     const promotions = await this.getAppPromotions().catch(() => []);
     const dapiStatus = getAppCheckInStatusFromPromotions(promotions);
-    return dapiStatus || webStatus || null;
+    return resolveAppCheckInStatus(webStatus, dapiStatus);
   }
 
   /**

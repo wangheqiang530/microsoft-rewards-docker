@@ -239,6 +239,28 @@ export function getAppCheckInStatusFromPromotions(promotions = [], now = Date.no
   };
 }
 
+/**
+ * Dashboard 的 bingapp streak 可能长期停留在 0/7，而同一账号的 DAPI
+ * check-in promotion 已明确标记今日完成。Token 归属校验通过时，DAPI 的
+ * 今日完成状态必须优先，否则会把真实签到误判成失败并覆盖回 0/1。
+ */
+export function resolveAppCheckInStatus(webStatus = null, dapiStatus = null) {
+  const webCompleted = webStatus?.isCurrentDayCompleted === true;
+  const dapiCompleted = dapiStatus?.isCurrentDayCompleted === true;
+  if (dapiCompleted) {
+    return {
+      ...dapiStatus,
+      webStatusMismatch: webStatus
+        && typeof webStatus.isCurrentDayCompleted === 'boolean'
+        && !webCompleted
+    };
+  }
+  if (webStatus && typeof webStatus.isCurrentDayCompleted === 'boolean') {
+    return webStatus;
+  }
+  return dapiStatus || webStatus || null;
+}
+
 export function buildAppActivityPayload(offerId, {
   id,
   country = 'cn',
