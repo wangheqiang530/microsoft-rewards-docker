@@ -1,6 +1,59 @@
 // 全局状态
 let currentStatus = null;
 let currentConfig = null;
+
+function extractHtmlErrorDetail(text) {
+  const source = String(text || '');
+  const title = source.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]
+    || source.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i)?.[1]
+    || source.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]
+    || '';
+  return title
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160);
+}
+
+/**
+ * 统一读取 JSON 接口响应。
+ *
+ * 反向代理超时或服务重启时，接口可能返回 502/504 的 HTML 页面；
+ * 直接调用 response.json() 只会得到晦涩的 “Unexpected token '<'”。
+ */
+async function readJsonResponse(response) {
+  const raw = await response.text();
+  const text = raw.trim();
+  const contentType = String(response.headers.get('content-type') || '');
+  const status = Number(response.status) || 0;
+
+  if (text) {
+    try {
+      return JSON.parse(text);
+    } catch {}
+  }
+
+  const detail = extractHtmlErrorDetail(text);
+  const looksHtml = /<!doctype\s+html|<html[\s>]|<body[\s>]|<pre[\s>]/i.test(text)
+    || /text\/html/i.test(contentType);
+
+  if (looksHtml) {
+    if (status === 504 || /gateway time-?out|timed out|超时/i.test(detail)) {
+      throw new Error('请求超过反向代理等待时间（HTTP 504），后台动作可能仍在执行，请稍后刷新任务进度确认');
+    }
+    if (status === 502) {
+      throw new Error('反向代理无法连接后台服务（HTTP 502），请检查容器是否重启或仍在启动');
+    }
+    const suffix = detail ? `：${detail}` : '';
+    throw new Error(`服务器返回了 HTML 页面而不是 JSON（HTTP ${status || '未知'}），通常是反向代理超时、服务重启或接口不存在${suffix}`);
+  }
+
+  throw new Error(`接口返回内容不是合法 JSON（HTTP ${status || '未知'}）${text ? `：${text.slice(0, 160)}` : ''}`);
+}
+
 let eventSource = null;
 let currentHistoryDays = 7;
 let currentTheme = 'dark';
@@ -2617,11 +2670,12 @@ async function runTaskCardAction(accountId, taskKey, taskName = taskKey) {
   else startActionProgressTicker(12, 88, 8, `正在执行「${taskName}」一次...`);
 
   try {
-    const res = await fetch('/api/tasks/card-action', {
+    const response = await fetch('/api/tasks/card-action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accountId: targetId, taskKey })
-    }).then(r => r.json());
+    });
+    const res = await readJsonResponse(response);
 
     stopMicrosoftActionPolling();
     stopActionProgressTicker();
@@ -3065,7 +3119,7 @@ let taskRunning = false;
 function refreshVersionPillTooltip() {
   const pill = document.getElementById('version-status-pill');
   if (!pill) return;
-  const current = updateInfo?.currentVersion || '1.10.17';
+  const current = updateInfo?.currentVersion || '1.10.18';
   const statusLine = taskRunning
     ? '🟦 系统状态：正在执行自动化任务打卡中…'
     : '🟢 系统状态：后台定时就绪中';
@@ -3120,8 +3174,8 @@ async function handleVersionCheckClick() {
     openEpicActionModal(
       '版本检查',
       failed
-        ? `当前运行版本 v${updateInfo?.currentVersion || '1.10.17'}，但无法连接 GitHub 检查更新。`
-        : `当前运行版本 v${updateInfo?.currentVersion || '1.10.17'} 已是最新版本。`,
+        ? `当前运行版本 v${updateInfo?.currentVersion || '1.10.18'}，但无法连接 GitHub 检查更新。`
+        : `当前运行版本 v${updateInfo?.currentVersion || '1.10.18'} 已是最新版本。`,
       ['获取远端版本', '比较版本号', failed ? '检查失败' : '确认无需更新'],
       3
     );

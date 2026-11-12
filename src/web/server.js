@@ -25,11 +25,12 @@ import {
   buildDiagnosticReport,
   DIAGNOSTIC_WINDOW_HOURS
 } from '../core/diagnostics.js';
+import { endJson, startJsonHeartbeat } from './jsonHeartbeat.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const CURRENT_VERSION = '1.10.17';
+const CURRENT_VERSION = '1.10.18';
 
 let lastCpuInfo = os.cpus().map(c => c.times);
 
@@ -787,6 +788,7 @@ export function createServer() {
 
   // 任务卡片点击执行：签到、阅读、搜索或打孔卡推进一次
   app.post('/api/tasks/card-action', async (req, res) => {
+    let stopHeartbeat = () => {};
     try {
       if (accountContextLock.isBusy()) {
         return res.status(409).json({ success: false, message: '已有任务正在执行，请稍后再试' });
@@ -796,10 +798,19 @@ export function createServer() {
       if (targetAcc?.enabled === false) {
         return res.status(409).json({ success: false, message: '账号已暂停，请先启用后再执行任务' });
       }
+      // 打孔卡动作通常要等待浏览器回读，可能超过反向代理的 30 秒空闲超时。
+      // 先发 JSON 合法空白作为心跳，避免代理用 HTML 504/502 页面截断真实响应。
+      stopHeartbeat = startJsonHeartbeat(res);
       const result = await taskManager.runTaskAction(accountId, taskKey);
-      res.json({ success: true, data: result });
+      stopHeartbeat();
+      endJson(res, { success: true, data: result });
     } catch (e) {
-      res.status(500).json({ success: false, message: e.message });
+      stopHeartbeat();
+      if (res.headersSent) {
+        endJson(res, { success: false, message: e.message });
+      } else {
+        res.status(500).json({ success: false, message: e.message });
+      }
     }
   });
 

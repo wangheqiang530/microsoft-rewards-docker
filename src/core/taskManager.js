@@ -2138,7 +2138,7 @@ export class TaskManager {
           result.message = questRes?.completed > 0
             ? `已推进 ${questRes.completed} 个可完成子任务`
             : (questRes?.attempted > 0
-                ? `已尝试 ${questRes.attempted} 个子任务，官网未确认进度，已进入冷却`
+                ? `已尝试 ${questRes.attempted} 个子任务，官网未确认进度，将短暂冷却后重试`
                 : '已刷新任务状态，当前没有可点击完成的按钮');
         }
       }
@@ -2796,7 +2796,7 @@ export class TaskManager {
                   this.recordPunchCardSteps(accountId, questRes.details);
                 }
               } else if (questRes.attempted > 0) {
-                logger.log('🟡', `任务打孔卡已尝试 ${questRes.attempted} 项，官网未确认进度，已进入冷却`, '', accountName);
+                logger.log('🟡', `任务打孔卡已尝试 ${questRes.attempted} 项，官网未确认进度，将短暂冷却后重试`, '', accountName);
               }
               // 无论是否推进，都同步一次官网真实状态。
               await this.syncAccountOfficialStatus(accCfg, { owned: true });

@@ -22,7 +22,11 @@ import {
   isQuestSubtaskCoolingDown,
   buildQuestSubtaskUpdate,
   resolveQuestTargetUrl,
-  evaluateQuestAdvance
+  evaluateQuestAdvance,
+  extractQuestSearchQuery,
+  isQuestSearchTarget,
+  resolveQuestFailureCooldown,
+  questVerificationAttempts
 } from './questStatus.js';
 import {
   SPECIAL_ACTIVITIES,
@@ -953,7 +957,12 @@ class BrowserManager extends EventEmitter {
 
     return (rawItems || []).map(item => {
       const progress = parseQuestProgress(item.rawText);
-      const kind = classifyQuestAction(item);
+      // href 本身也是微软任务意图的一部分。月度打孔卡可能把动作写成
+      // “比较电子产品”，但 href 明确是 bing.com/search?q=...，必须按搜索执行。
+      const classified = classifyQuestAction(item);
+      const kind = classified === 'unknown' && isQuestSearchTarget(item)
+        ? 'search'
+        : classified;
       const completed = isQuestSubtaskCompleted(item);
       const locked = item.disabled || item.hasLockIcon;
       return {
@@ -1030,6 +1039,8 @@ class BrowserManager extends EventEmitter {
   async executeQuestSubtaskAction(context, page, quest, target, accName = '') {
     const beforeUrl = String(page.url() || '');
     const targetUrl = resolveQuestTargetUrl(target.href, quest.url || beforeUrl);
+    const targetIsBingSearch = isQuestSearchTarget({ href: targetUrl || target.href });
+    const searchKind = target.kind === 'search' || targetIsBingSearch;
     const popupPromise = context.waitForEvent('page', { timeout: 9000 }).catch(() => null);
     let clicked = false;
     let navigationFallback = false;
@@ -1058,7 +1069,8 @@ class BrowserManager extends EventEmitter {
 
     // 有些外链点击会成功但浏览器不触发 popup，或链接元素被遮罩层接管。
     // 浏览类任务显式打开目标 URL，避免“看起来点了但任务页从未被访问”。
-    if (!landingPage && targetUrl && ['visit', 'quiz', 'reward', 'unknown'].includes(target.kind)) {
+    if (!landingPage && targetUrl && !searchKind
+      && ['visit', 'quiz', 'reward', 'unknown'].includes(target.kind)) {
       landingPage = await context.newPage().catch(() => null);
       if (landingPage) {
         navigationFallback = true;
@@ -1074,20 +1086,23 @@ class BrowserManager extends EventEmitter {
     }
 
     let searchResult = null;
-    if (target.kind === 'search') {
+    if (searchKind) {
+      const questQuery = extractQuestSearchQuery(target);
       let searchPage = landingPage;
       const landingUrl = String(searchPage?.url?.() || '');
-      const isBing = /^https?:\/\/(?:[^/]+\.)?bing\.com\//i.test(landingUrl);
-      if (!searchPage || !isBing) {
+      const isSearchResults = /^https?:\/\/(?:[^/]+\.)?bing\.com\/search\/?\?/i.test(landingUrl);
+      if (!searchPage || !isSearchResults) {
         searchPage = await this.createPage(context);
         await searchPage.goto('https://cn.bing.com', { waitUntil: 'domcontentloaded', timeout: 25000 });
         await this.delay(1200);
       }
-      const query = await rewardsApi.getHotSearchWord();
+      const query = questQuery || await rewardsApi.getHotSearchWord();
       searchResult = await this.performHumanSearch(searchPage, {
         query,
         navigateHome: false,
-        allowExistingQuery: true,
+        // 官网任务指定了 q 时必须重新提交这个关键词；不能复用点击后
+        // 已经打开的搜索结果把任务误认为“已访问”。
+        allowExistingQuery: !questQuery,
         logAccountName: accName
       });
       await this.delay(rewardsApi.randomRange(5000, 8000));
@@ -1108,6 +1123,7 @@ class BrowserManager extends EventEmitter {
     await page.goto(quest.url || beforeUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
     await this.delay(rewardsApi.randomRange(3000, 5000));
     return {
+      performed: true,
       searchResult,
       landingUrl: String(landingPage?.url?.() || ''),
       navigationFallback
@@ -1218,7 +1234,19 @@ class BrowserManager extends EventEmitter {
             const targetProgressAfter = Number.isFinite(Number(afterTarget?.progress?.progress))
               ? Number(afterTarget.progress.progress)
               : null;
-            const pageProgressAfter = await this.readQuestPageProgress(page, { attempts: 3 });
+            const verificationWait = questVerificationAttempts(actionResult);
+            let pageProgressAfter = null;
+            for (let waitAttempt = 0; waitAttempt < verificationWait.attempts; waitAttempt++) {
+              pageProgressAfter = await this.readQuestPageProgress(page, { attempts: 1 });
+              const afterValue = Number(pageProgressAfter?.progress);
+              if (Number.isFinite(officialProgressBefore) && Number.isFinite(afterValue)
+                && afterValue > officialProgressBefore) break;
+              if (Number.isFinite(officialProgressBefore) && Number.isFinite(afterValue)
+                && afterValue === officialProgressBefore
+                && waitAttempt < verificationWait.attempts - 1) {
+                await this.delay(verificationWait.delayMs);
+              }
+            }
             let officialProgressAfter = Number.isFinite(Number(pageProgressAfter?.progress))
               ? Number(pageProgressAfter.progress)
               : null;
@@ -1250,9 +1278,7 @@ class BrowserManager extends EventEmitter {
             const daily = isDailyQuestSubtask(target);
             const cooldownMs = advanced
               ? (daily ? 24 * 60 * 60 * 1000 : 0)
-              : (target.kind === 'search'
-                  ? 24 * 60 * 60 * 1000
-                  : (target.kind === 'visit' ? 30 * 60 * 1000 : 2 * 60 * 60 * 1000));
+              : resolveQuestFailureCooldown(target.kind);
             const result = advanced ? 'advanced' : (activated ? 'activated' : 'no-change');
             subtaskUpdates[target.key] = buildQuestSubtaskUpdate({
               previous: runtimeState[target.key] || null,
@@ -1283,7 +1309,7 @@ class BrowserManager extends EventEmitter {
             } else {
               logger.log(
                 '🟡',
-                `打孔卡「${displayName}」子任务已尝试但官网未变化，已进入冷却: ${stepLabel}`,
+                `打孔卡「${displayName}」子任务已尝试但官网未变化，将短暂冷却后重试: ${stepLabel}`,
                 '',
                 accName
               );
