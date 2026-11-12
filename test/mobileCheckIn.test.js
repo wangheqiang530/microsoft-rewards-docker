@@ -345,3 +345,66 @@ test('DAPI 返回积分但官网回读短暂未刷新时，不把成功签到覆
     rewardsApi.getAppPromotions = originals.getAppPromotions;
   }
 });
+
+test('完整账号流程签到成功后不会被 signSuccess 作用域异常中断', async () => {
+  const accountId = 'acc_full_run_sign_scope';
+  configManager.upsertAccount({
+    id: accountId,
+    name: '完整签到流程测试',
+    cookie: 'MOCK_COOKIE;_U=mock_user',
+    refreshToken: 'MOCK_REFRESH',
+    enabled: true
+  });
+  const account = configManager.findAccount(accountId);
+  const tm = new TaskManager();
+  tm.running = true;
+  tm.ensureAccountStats(accountId).tasks.sign.done = false;
+  tm.syncAccountOfficialStatus = async () => tm.ensureAccountStats(accountId);
+  tm.checkMobileAccountBinding = async () => ({
+    mismatch: false,
+    tokenOk: true,
+    verified: true,
+    message: ''
+  });
+  tm.claimExtraPointsAfterTasks = async () => ({ claimed: 0 });
+
+  const originals = {
+    signApp: rewardsApi.signApp,
+    getRewardsInfo: rewardsApi.getRewardsInfo,
+    getBalance: rewardsApi.getBalance,
+    checkStreak: rewardsApi.checkStreak
+  };
+  rewardsApi.signApp = async () => ({ points: 5, balance: 100, confirmed: true });
+  rewardsApi.getRewardsInfo = async () => ({
+    balance: 100,
+    todayPoints: 5,
+    claimablePoints: 0
+  });
+  rewardsApi.getBalance = async () => 100;
+  rewardsApi.checkStreak = async () => ({});
+
+  try {
+    const result = await tm.runSingleAccount(account, {
+      tasks: {
+        sign: true,
+        read: false,
+        appPromotions: false,
+        dailySet: false,
+        desktopApp: false,
+        promos: false,
+        search: false
+      }
+    });
+    const signTask = tm.ensureAccountStats(accountId).tasks.sign;
+    assert.equal(signTask.done, true);
+    assert.equal(signTask.points, 5);
+    assert.ok(Number(signTask.lastConfirmedAt) > 0);
+    assert.equal(result.accountId, accountId);
+  } finally {
+    tm.running = false;
+    rewardsApi.signApp = originals.signApp;
+    rewardsApi.getRewardsInfo = originals.getRewardsInfo;
+    rewardsApi.getBalance = originals.getBalance;
+    rewardsApi.checkStreak = originals.checkStreak;
+  }
+});

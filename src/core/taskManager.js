@@ -2287,11 +2287,11 @@ export class TaskManager {
 
     // 1. 移动端签到 (若官网已确认则直接跳过)
     if (globalCfg.tasks?.sign && this.running) {
+      let signSuccess = false;
       if (accStats.tasks.sign?.done) {
         logger.log('✅', '移动端签到已完成，跳过', accountName);
       } else {
         let signPoints = 0;
-        let signSuccess = false;
 
         if (tokenOk) {
           const appRes = await rewardsApi.signApp();
