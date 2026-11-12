@@ -171,6 +171,121 @@ test('DAPI 已确认今日签到时，卡片动作直接返回 alreadyDone 并�
   }
 });
 
+test('DAPI 签到活动只有今日 last_updated 但未完成时，卡片动作仍会执行签到', async () => {
+  const accountId = 'acc_mobile_stale_timestamp';
+  configManager.upsertAccount({
+    id: accountId,
+    name: '移动端时间戳误判测试',
+    cookie: 'MOCK_COOKIE;_U=mock_user',
+    refreshToken: 'MOCK_REFRESH'
+  });
+
+  const tm = new TaskManager();
+  tm.getLiveAccountBlockReason = async () => '';
+  tm.checkMobileAccountBinding = async () => ({
+    mismatch: false,
+    tokenOk: true,
+    verified: true,
+    message: ''
+  });
+  tm.syncAccountOfficialStatus = async () => tm.ensureAccountStats(accountId);
+
+  const originals = {
+    getRewardsInfo: rewardsApi.getRewardsInfo,
+    getAppPromotions: rewardsApi.getAppPromotions,
+    signApp: rewardsApi.signApp
+  };
+  let signCalls = 0;
+  rewardsApi.getRewardsInfo = async () => ({
+    streaks: {
+      bingapp: {
+        completedDays: 0,
+        isCurrentDayCompleted: false
+      }
+    }
+  });
+  rewardsApi.getAppPromotions = async () => [{
+    name: 'Daily Check-In',
+    offerId: 'Gamification_Sapphire_DailyCheckIn',
+    type: 'checkin',
+    complete: false,
+    progress: 8,
+    lastUpdated: new Date().toISOString()
+  }];
+  rewardsApi.signApp = async () => {
+    signCalls++;
+    return { points: 5, balance: 100, confirmed: true };
+  };
+
+  try {
+    const result = await tm.runTaskAction(accountId, 'sign');
+    assert.equal(signCalls, 1);
+    assert.equal(result.hadFailure, false);
+    assert.match(result.message, /签到完成/);
+  } finally {
+    rewardsApi.getRewardsInfo = originals.getRewardsInfo;
+    rewardsApi.getAppPromotions = originals.getAppPromotions;
+    rewardsApi.signApp = originals.signApp;
+  }
+});
+
+test('本机已确认今日签到且官网状态暂不可读时，不再重复提交签到', async () => {
+  const accountId = 'acc_mobile_local_confirmed';
+  configManager.upsertAccount({
+    id: accountId,
+    name: '移动端本机确认测试',
+    cookie: 'MOCK_COOKIE;_U=mock_user',
+    refreshToken: 'MOCK_REFRESH'
+  });
+
+  const tm = new TaskManager();
+  tm.getLiveAccountBlockReason = async () => '';
+  tm.checkMobileAccountBinding = async () => ({
+    mismatch: false,
+    tokenOk: true,
+    verified: true,
+    message: ''
+  });
+  tm.syncAccountOfficialStatus = async () => tm.ensureAccountStats(accountId);
+  tm.updateTask('sign', {
+    progress: 1,
+    max: 1,
+    done: true,
+    lastConfirmedAt: Date.now()
+  }, accountId);
+
+  const originals = {
+    getRewardsInfo: rewardsApi.getRewardsInfo,
+    getAppPromotions: rewardsApi.getAppPromotions,
+    signApp: rewardsApi.signApp
+  };
+  let signCalls = 0;
+  rewardsApi.getRewardsInfo = async () => ({ streaks: {} });
+  rewardsApi.getAppPromotions = async () => [{
+    name: 'Daily Check-In',
+    offerId: 'Gamification_Sapphire_DailyCheckIn',
+    type: 'checkin',
+    complete: false,
+    progress: 8,
+    lastUpdated: new Date().toISOString()
+  }];
+  rewardsApi.signApp = async () => {
+    signCalls++;
+    return { points: 0, balance: 100, confirmed: true };
+  };
+
+  try {
+    const result = await tm.runTaskAction(accountId, 'sign');
+    assert.equal(signCalls, 0);
+    assert.equal(result.alreadyDone, true);
+    assert.match(result.message, /本机已确认/);
+  } finally {
+    rewardsApi.getRewardsInfo = originals.getRewardsInfo;
+    rewardsApi.getAppPromotions = originals.getAppPromotions;
+    rewardsApi.signApp = originals.signApp;
+  }
+});
+
 test('DAPI 返回积分但官网回读短暂未刷新时，不把成功签到覆盖回 0/1', async () => {
   const accountId = 'acc_mobile_stale_web';
   configManager.upsertAccount({

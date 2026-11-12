@@ -19,17 +19,6 @@ function localDateKey(timestamp = Date.now()) {
   ].join('-');
 }
 
-function parseTimestamp(value) {
-  const text = String(value || '').trim();
-  if (!text) return NaN;
-  const numeric = Number(text);
-  if (Number.isFinite(numeric) && numeric > 0) {
-    return numeric < 1e12 ? numeric * 1000 : numeric;
-  }
-  const parsed = Date.parse(text);
-  return Number.isFinite(parsed) ? parsed : NaN;
-}
-
 function normalizeDateKey(value = '') {
   const text = String(value || '').trim();
   const match = text.match(/^(\d{4})[-/]?(\d{2})[-/]?(\d{2})/);
@@ -225,9 +214,9 @@ export function getAppCheckInStatusFromPromotions(promotions = [], now = Date.no
   if (!Array.isArray(promotions)) return null;
   const promotion = promotions.find(isAppCheckInPromotion);
   if (!promotion) return null;
-  const lastUpdated = parseTimestamp(promotion.lastUpdated);
-  const completedToday = promotion.complete === true
-    || (Number.isFinite(lastUpdated) && localDateKey(lastUpdated) === localDateKey(now));
+  // last_updated 会在启动 App、加载活动等场景刷新，并不代表今日签到成功。
+  // 真实签到响应还可能 p=0，因此这里只认活动自身的明确 complete 状态。
+  const completedToday = promotion.complete === true;
   const day = Math.max(0, toFiniteNumber(promotion.progress));
   return {
     isCurrentDayCompleted: completedToday,

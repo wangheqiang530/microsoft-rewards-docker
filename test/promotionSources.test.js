@@ -107,9 +107,22 @@ test('移动端 DAPI 活动可识别 sapphire、签到与阅读任务', () => {
     promotions,
     new Date(2026, 10, 3, 12, 0, 0).getTime()
   );
-  assert.equal(checkIn.isCurrentDayCompleted, true);
+  assert.equal(checkIn.isCurrentDayCompleted, false);
   assert.equal(checkIn.completedDays, 3);
   assert.equal(checkIn.source, 'dapi');
+});
+
+test('签到活动仅刷新 last_updated 时不能误判为今日已完成', () => {
+  const now = new Date(2026, 10, 12, 16, 0, 0).getTime();
+  const status = getAppCheckInStatusFromPromotions([{
+    offerId: 'Gamification_Sapphire_DailyCheckIn',
+    type: 'checkin',
+    complete: false,
+    progress: 8,
+    lastUpdated: '2026-11-12T08:00:00+08:00'
+  }], now);
+  assert.equal(status.isCurrentDayCompleted, false);
+  assert.equal(status.completedDays, 8);
 });
 
 test('App 活动上报载荷使用 type 101 与 offerid', () => {

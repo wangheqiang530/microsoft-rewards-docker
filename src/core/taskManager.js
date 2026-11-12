@@ -1018,6 +1018,7 @@ export class TaskManager {
               max: 1,
               points: signTask.points || 10,
               done: true,
+              lastConfirmedAt: signTask.lastConfirmedAt || Date.now(),
               statusMessage: appCheckInMismatchMessage
             };
           } else if (appStreak.isCurrentDayCompleted === false) {
@@ -1030,6 +1031,7 @@ export class TaskManager {
                 max: 1,
                 points: signTask.points || 10,
                 done: true,
+                lastConfirmedAt: Date.now(),
                 statusMessage: 'App 端已确认签到，等待官网连签状态刷新'
               };
             } else {
@@ -1039,6 +1041,7 @@ export class TaskManager {
                 max: 1,
                 points: 0,
                 done: false,
+                lastConfirmedAt: 0,
                 statusMessage: appCheckInMismatchMessage
               };
             }
@@ -1799,14 +1802,22 @@ export class TaskManager {
           }
         }
         const appStatus = resolveAppCheckInStatus(webAppStatus, dapiAppStatus);
-        if (appStatus?.isCurrentDayCompleted) {
+        const localConfirmed = before?.tasks?.sign?.done === true
+          && this.isSameLocalDay(before?.tasks?.sign?.lastConfirmedAt);
+        if (appStatus?.isCurrentDayCompleted || localConfirmed) {
           result.alreadyDone = true;
-          result.message = `今日已签到（App 连签 ${appStatus.completedDays || 0}/7 天）`;
-          result.details.push(
-            appStatus.source === 'dapi'
-              ? 'DAPI 已确认今日签到，正在同步本地任务状态'
-              : '官网已确认今日签到'
-          );
+          result.message = appStatus?.isCurrentDayCompleted
+            ? `今日已签到（App 连签 ${appStatus.completedDays || 0}/7 天）`
+            : '今日已签到（本机已确认，官网状态刷新中）';
+          if (appStatus?.isCurrentDayCompleted) {
+            result.details.push(
+              appStatus.source === 'dapi'
+                ? 'DAPI 已确认今日签到，正在同步本地任务状态'
+                : '官网已确认今日签到'
+            );
+          } else {
+            result.details.push('本机已记录今日签到成功，避免重复提交签到请求');
+          }
           await this.syncAccountOfficialStatus(acc, { owned: true });
         } else {
           let points = 0;
@@ -1832,7 +1843,7 @@ export class TaskManager {
               points += Number(appRes.points);
               appCheckInConfirmed = true;
               result.details.push(`App 端签到成功 +${appRes.points} 积分`);
-            } else if (appRes?.isDuplicate) {
+            } else if (appRes?.isDuplicate || appRes?.confirmed) {
               appCheckInConfirmed = true;
               result.details.push('App 端今日已签到');
             } else {
@@ -1841,6 +1852,15 @@ export class TaskManager {
             }
           }
 
+          if (appCheckInConfirmed) {
+            this.updateTask('sign', {
+              progress: 1,
+              max: 1,
+              points: points || before?.tasks?.sign?.points || 10,
+              done: true,
+              lastConfirmedAt: Date.now()
+            }, accountId);
+          }
           await this.syncAccountOfficialStatus(acc, {
             owned: true,
             preserveConfirmedAppCheckIn: appCheckInConfirmed
@@ -2281,7 +2301,7 @@ export class TaskManager {
             signSuccess = true;
             signPoints += Number(appRes.points);
             logger.log('📱', `App 端静默签到成功 +${appRes.points} 积分`, accountName);
-          } else if (appRes && appRes.isDuplicate) {
+          } else if (appRes && (appRes.isDuplicate || appRes.confirmed)) {
             signSuccess = true;
             logger.log('📱', 'App 端今日已签到过，跳过', accountName);
           } else if (appRes) {
@@ -2306,7 +2326,8 @@ export class TaskManager {
             progress: 1,
             max: 1,
             points: signPoints || accStats.tasks.sign?.points || 10,
-            done: true
+            done: true,
+            lastConfirmedAt: Date.now()
           }, accountId);
           logger.addTimeline(accountName, `移动端签到完成 (+${signPoints || 10} 积分)`);
         }
