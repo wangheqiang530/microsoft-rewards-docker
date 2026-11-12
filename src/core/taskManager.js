@@ -1021,14 +1021,27 @@ export class TaskManager {
               statusMessage: appCheckInMismatchMessage
             };
           } else if (appStreak.isCurrentDayCompleted === false) {
-            accStats.tasks.sign = {
-              ...signTask,
-              progress: 0,
-              max: 1,
-              points: 0,
-              done: false,
-              statusMessage: appCheckInMismatchMessage
-            };
+            if (options.preserveConfirmedAppCheckIn === true) {
+              // DAPI 已返回积分/重复签到，但 Dashboard 可能还没完成异步刷新。
+              // 本次同步不能把刚确认的成功覆盖回 0/1；下一次普通同步仍以官网为准。
+              accStats.tasks.sign = {
+                ...signTask,
+                progress: 1,
+                max: 1,
+                points: signTask.points || 10,
+                done: true,
+                statusMessage: 'App 端已确认签到，等待官网连签状态刷新'
+              };
+            } else {
+              accStats.tasks.sign = {
+                ...signTask,
+                progress: 0,
+                max: 1,
+                points: 0,
+                done: false,
+                statusMessage: appCheckInMismatchMessage
+              };
+            }
           }
         }
 
@@ -1782,6 +1795,7 @@ export class TaskManager {
           result.message = `今日已签到（官网 App 连签 ${appStatus.completedDays || 0}/7 天）`;
         } else {
           let points = 0;
+          let appCheckInConfirmed = false;
           const webBalance = toOptionalFiniteNumber(info?.webBalance);
           const binding = await this.checkMobileAccountBinding(acc, webBalance);
           if (binding.mismatch) {
@@ -1801,8 +1815,10 @@ export class TaskManager {
               result.details.push(`App 端返回的账号余额 ${appRes.balance} 与网页端 ${webBalance} 不一致，已拒绝把本次签到计给当前账号`);
             } else if (appRes && Number(appRes.points || 0) > 0) {
               points += Number(appRes.points);
+              appCheckInConfirmed = true;
               result.details.push(`App 端签到成功 +${appRes.points} 积分`);
             } else if (appRes?.isDuplicate) {
+              appCheckInConfirmed = true;
               result.details.push('App 端今日已签到');
             } else {
               result.hadFailure = true;
@@ -1810,20 +1826,28 @@ export class TaskManager {
             }
           }
 
-          await this.syncAccountOfficialStatus(acc, { owned: true });
+          await this.syncAccountOfficialStatus(acc, {
+            owned: true,
+            preserveConfirmedAppCheckIn: appCheckInConfirmed
+          });
           const finalInfo = await rewardsApi.getRewardsInfo(1).catch(() => null);
           const finalApp = finalInfo?.streaks?.bingapp
             || await rewardsApi.getAppCheckInStatus({ allowWebFallback: false }).catch(() => null);
           if (finalApp?.isCurrentDayCompleted) {
             result.hadFailure = false;
             result.details.push(`官网 App 连签已确认：${finalApp.completedDays || 0}/7 天`);
+          } else if (appCheckInConfirmed) {
+            result.hadFailure = false;
+            result.details.push('App 端已确认签到，官网连签状态仍在刷新');
           } else if (finalApp && !binding.mismatch && binding.tokenOk) {
             result.hadFailure = true;
             result.details.push('官网 App 连签仍未完成，请检查移动端授权');
           }
           result.message = result.hadFailure
             ? '签到部分完成，请查看明细'
-            : (points > 0 ? `签到完成，本次获得 +${points} 积分` : '签到请求已完成');
+            : (points > 0
+                ? `签到完成，本次获得 +${points} 积分`
+                : (appCheckInConfirmed ? '签到完成，官网状态稍后刷新' : '签到请求已完成'));
         }
       } else if (taskKey === 'appPromotions') {
         const info = await rewardsApi.getRewardsInfo(1).catch(() => null);
@@ -2274,7 +2298,10 @@ export class TaskManager {
       }
 
       // 移动端签到必须以官网「必应应用连续打卡」为准。
-      await this.syncAccountOfficialStatus(accCfg, { owned: true });
+      await this.syncAccountOfficialStatus(accCfg, {
+        owned: true,
+        preserveConfirmedAppCheckIn: signSuccess
+      });
     }
 
     if (!this.running || this.isAccountPaused(accountId)) return;
