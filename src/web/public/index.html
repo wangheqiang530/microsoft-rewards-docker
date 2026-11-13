@@ -22,7 +22,7 @@
           <!-- 版本与状态复合胶囊 (结合更新检测与状态展示) -->
           <div class="version-status-pill status-idle" id="version-status-pill" title="系统状态: 后台定时就绪中 | 点击检查版本更新">
             <span class="status-dot"></span>
-            <span class="version-label" id="version-label">v1.10.18</span>
+            <span class="version-label" id="version-label">v1.10.19</span>
             <span class="update-indicator" id="update-indicator" style="display: none;">
               <span class="update-icon">🚀</span>
               <span class="update-text" id="update-text">有更新</span>
@@ -885,11 +885,7 @@
             <label class="form-label checkbox-label">
               <input type="checkbox" id="cfg-sched-enabled"> 开启后台自动定时巡检
             </label>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Cron 调度表达式</label>
-            <input type="text" id="cfg-sched-cron" class="form-input" value="*/25 * * * *">
-            <small class="form-hint">常用预设：<code>*/25 * * * *</code> (每25分钟检测一次) | <code>0 8,12,18 * * *</code> (每天8点、12点、18点)</small>
+            <small class="form-hint">定时巡检采用「24 个一小时档位 + 窗口内随机启动」的拟人化调度，每个账号在其所选档位内随机时间自动打卡。</small>
           </div>
           <div class="form-group">
             <label class="form-label">🔒 Web 访问密码（留空则不启用认证）</label>

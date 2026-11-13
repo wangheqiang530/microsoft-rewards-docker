@@ -142,7 +142,10 @@ test('打孔卡执行器对 href 搜索任务也必须真实提交指定搜索�
   );
   assert.match(source, /const searchKind = target\.kind === 'search' \|\| targetIsBingSearch/);
   assert.match(source, /const questQuery = extractQuestSearchQuery\(target\)/);
-  assert.match(source, /allowExistingQuery: !questQuery/);
+  // 官网给的带 form/OCID/PUBL 追踪参数的搜索链接必须被直接访问，
+  // 而不是被重输关键词冲掉追踪参数（否则月度打孔卡会卡在 2/5）。
+  assert.match(source, /const officialSearchTarget = isQuestSearchTarget\(\{ href: targetUrl \|\| target\.href \}\)/);
+  assert.match(source, /searchPage\.goto\(officialSearchTarget/);
   assert.match(source, /!searchKind[\s\S]*?\['visit', 'quiz', 'reward', 'unknown'\]\.includes\(target\.kind\)/);
 });
 

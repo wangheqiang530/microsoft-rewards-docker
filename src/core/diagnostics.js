@@ -300,8 +300,7 @@ function buildConfigSummary(config = {}) {
       proxyNodeCount: Array.isArray(config.network?.proxies) ? config.network.proxies.length : 0
     },
     schedule: {
-      enabled: config.schedule?.enabled !== false,
-      cron: config.schedule?.cron || ''
+      enabled: config.schedule?.enabled !== false
     }
   };
 }

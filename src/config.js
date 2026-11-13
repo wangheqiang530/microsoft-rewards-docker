@@ -81,8 +81,7 @@ const DEFAULT_CONFIG = {
     gpuBackend: 'gl'
   },
   schedule: {
-    enabled: true,
-    cron: '*/25 * * * *'
+    enabled: true
   },
   notify: {
     proxy: {
@@ -188,6 +187,7 @@ class ConfigManager {
         this.migrateTimeSlots();
         this.migrateRunHours();
         this.migrateSearchRhythm();
+        this.migrateSchedule();
       } else {
         this.config = structuredClone(DEFAULT_CONFIG);
         this.save();
@@ -322,6 +322,18 @@ class ConfigManager {
       tasks.searchJitterSec = 60;
       this.save();
     }
+  }
+
+  /**
+   * 移除 v1.4.0 起已作废的 schedule.cron 死配置。
+   * 实际调度是「每分钟 tick + 24 个一小时档位 + 窗口内随机偏移」，cron 从未生效，
+   * 留在配置里只会误导用户（改不动、填错也不报错）。
+   */
+  migrateSchedule() {
+    if (!this.config.schedule || typeof this.config.schedule !== 'object') return;
+    if (!('cron' in this.config.schedule)) return;
+    delete this.config.schedule.cron;
+    this.save();
   }
 
   normalizeProxyRecords(records = [], existingRecords = []) {

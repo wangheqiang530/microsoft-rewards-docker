@@ -3,7 +3,7 @@
 **把微软积分日常，交给一台不休息的小容器。**
 基于 Docker + WebUI，适合 NAS、VPS 和家用服务器。多账号管理、每日任务、浏览器登录、代理与运行计划，都在一个网页里完成。
 
-[![Version](https://img.shields.io/badge/version-v1.10.18-blue.svg)](https://github.com/wangheqiang530/microsoft-rewards-docker/releases/tag/v1.10.18)
+[![Version](https://img.shields.io/badge/version-v1.10.19-blue.svg)](https://github.com/wangheqiang530/microsoft-rewards-docker/releases/tag/v1.10.19)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com/)
 [![Node.js](https://img.shields.io/badge/Node.js-20+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
@@ -114,7 +114,7 @@ docker run -d \
 - 每天提供 `00:00` 至 `23:00` 共 24 个一小时档位。
 - 每个账号选择一个档位，同一档位不会被多个账号重复占用。
 - 没有选择档位的账号视为暂停，不会生成自动任务。
-- 默认每 25 分钟巡检一次，也可以在配置中心改成自己的 Cron。
+- 定时巡检按「24 个一小时档位 + 窗口内随机启动」运行，无需配置 Cron。
 - 执行中的任务可以手动停止；多账号之间默认保留安全间隔。
 
 ---

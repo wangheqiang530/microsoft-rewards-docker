@@ -3119,7 +3119,7 @@ let taskRunning = false;
 function refreshVersionPillTooltip() {
   const pill = document.getElementById('version-status-pill');
   if (!pill) return;
-  const current = updateInfo?.currentVersion || '1.10.18';
+  const current = updateInfo?.currentVersion || '1.10.19';
   const statusLine = taskRunning
     ? '🟦 系统状态：正在执行自动化任务打卡中…'
     : '🟢 系统状态：后台定时就绪中';
@@ -3174,8 +3174,8 @@ async function handleVersionCheckClick() {
     openEpicActionModal(
       '版本检查',
       failed
-        ? `当前运行版本 v${updateInfo?.currentVersion || '1.10.18'}，但无法连接 GitHub 检查更新。`
-        : `当前运行版本 v${updateInfo?.currentVersion || '1.10.18'} 已是最新版本。`,
+        ? `当前运行版本 v${updateInfo?.currentVersion || '1.10.19'}，但无法连接 GitHub 检查更新。`
+        : `当前运行版本 v${updateInfo?.currentVersion || '1.10.19'} 已是最新版本。`,
       ['获取远端版本', '比较版本号', failed ? '检查失败' : '确认无需更新'],
       3
     );
@@ -4996,7 +4996,7 @@ async function fetchConfig() {
       }
       const cronHint = document.getElementById('cron-hint');
       if (cronHint) {
-        cronHint.innerText = `定时巡检: ${res.data.schedule?.enabled ? res.data.schedule?.cron : '已停用'}`;
+        cronHint.innerText = `定时巡检: ${res.data.schedule?.enabled ? '已开启（24 档位拟人化调度）' : '已停用'}`;
       }
     }
   } catch (e) {
@@ -5679,7 +5679,6 @@ function populateSettingsForm() {
   if (themeSelect) themeSelect.value = themeVal;
   // 调度
   document.getElementById('cfg-sched-enabled').checked = c.schedule?.enabled !== false;
-  document.getElementById('cfg-sched-cron').value = c.schedule?.cron || '*/25 * * * *';
   // Web 访问密码
   const authPassElem = document.getElementById('cfg-auth-password');
   if (authPassElem) authPassElem.value = c.server?.authPassword || '';
@@ -5910,8 +5909,7 @@ async function saveSettingsFromModal() {
       theme: selectedTheme
     },
     schedule: {
-      enabled: document.getElementById('cfg-sched-enabled').checked,
-      cron: document.getElementById('cfg-sched-cron').value.trim()
+      enabled: document.getElementById('cfg-sched-enabled').checked
     },
     server: {
       authPassword: document.getElementById('cfg-auth-password')?.value.trim() || ''

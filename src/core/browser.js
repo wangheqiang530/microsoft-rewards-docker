@@ -1088,24 +1088,51 @@ class BrowserManager extends EventEmitter {
     let searchResult = null;
     if (searchKind) {
       const questQuery = extractQuestSearchQuery(target);
+      const officialSearchTarget = isQuestSearchTarget({ href: targetUrl || target.href })
+        ? (targetUrl || target.href)
+        : '';
       let searchPage = landingPage;
       const landingUrl = String(searchPage?.url?.() || '');
       const isSearchResults = /^https?:\/\/(?:[^/]+\.)?bing\.com\/search\/?\?/i.test(landingUrl);
-      if (!searchPage || !isSearchResults) {
-        searchPage = await this.createPage(context);
+
+      if (isSearchResults) {
+        // 点击后 popup 已经打开了 Bing 搜索结果页（带 q 与 form/OCID/PUBL 追踪参数）。
+        // 这正是打孔卡需要的「通过推广链接触发搜索」，referrer 与参数都完整，
+        // 直接停留即可。之前这里强制重输关键词，把追踪参数冲掉，导致任务永远卡住。
+        searchResult = {
+          success: true,
+          query: questQuery,
+          finalUrl: landingUrl,
+          searchSubmitted: true,
+          login: {}
+        };
+      } else if (officialSearchTarget) {
+        // 没有可复用的 popup 时，直接访问官网给的这条完整搜索链接，
+        // 保留 form/OCID/PUBL 参数，让微软服务端确认「Rewards 推广触发的搜索」。
+        if (!searchPage) searchPage = await this.createPage(context);
+        await searchPage.goto(officialSearchTarget, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
+        searchResult = {
+          success: true,
+          query: questQuery,
+          finalUrl: String(searchPage.url?.() || officialSearchTarget),
+          searchSubmitted: true,
+          login: {}
+        };
+      } else {
+        // 仅当既无结果页、也无官方搜索链接时才退回普通关键词搜索。
+        if (!searchPage) searchPage = await this.createPage(context);
         await searchPage.goto('https://cn.bing.com', { waitUntil: 'domcontentloaded', timeout: 25000 });
         await this.delay(1200);
+        const query = questQuery || await rewardsApi.getHotSearchWord();
+        searchResult = await this.performHumanSearch(searchPage, {
+          query,
+          navigateHome: false,
+          allowExistingQuery: false,
+          logAccountName: accName
+        });
       }
-      const query = questQuery || await rewardsApi.getHotSearchWord();
-      searchResult = await this.performHumanSearch(searchPage, {
-        query,
-        navigateHome: false,
-        // 官网任务指定了 q 时必须重新提交这个关键词；不能复用点击后
-        // 已经打开的搜索结果把任务误认为“已访问”。
-        allowExistingQuery: !questQuery,
-        logAccountName: accName
-      });
       await this.delay(rewardsApi.randomRange(5000, 8000));
+      await humanWheel(searchPage, { times: 1, min: 350, max: 800 }).catch(() => {});
       if (searchPage !== page && !searchPage.isClosed?.()) {
         await searchPage.close().catch(() => {});
       }
