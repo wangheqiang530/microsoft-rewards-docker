@@ -42,6 +42,26 @@ export function classifyQuestAction({ title = '', actionText = '', rawText = '' 
 }
 
 /**
+ * 决定一个打孔卡子任务应该按哪种动作执行。
+ *
+ * href 是比按钮文案更硬的证据：只要卡片指向 bing.com/search?q=...，
+ * 微软就是在要求「用这个关键词真正搜一次」。
+ *
+ * 旧实现只在 classifyQuestAction 返回 unknown 时才采信 href，于是
+ * 「黑色星期五优惠，就在这里」+「查看热门优惠」这种卡片被判成 visit，
+ * 走浏览分支裸开新页（无 Referer），官网永远不认这次搜索，
+ * 月度打孔卡就长期钉在 1/5、2/5。
+ *
+ * activate 必须保留最高优先级：激活按钮点击后卡片才展开出真正的子任务。
+ */
+export function resolveQuestKind({ title = '', actionText = '', rawText = '', href = '' } = {}) {
+  const classified = classifyQuestAction({ title, actionText, rawText });
+  if (classified === 'activate') return 'activate';
+  if (isQuestSearchTarget({ href })) return 'search';
+  return classified;
+}
+
+/**
  * 打孔卡子任务的目标是否明确指向 Bing 搜索。
  * 这比读取按钮文案更可靠，因为卡片可能只写“比较电子产品”。
  */

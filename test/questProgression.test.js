@@ -9,7 +9,8 @@ import {
   extractQuestSearchQuery,
   isQuestSearchTarget,
   resolveQuestFailureCooldown,
-  questVerificationAttempts
+  questVerificationAttempts,
+  resolveQuestKind
 } from '../src/core/questStatus.js';
 
 test('打孔卡总进度未增加时，不能因页面扫描出更多子任务而判定完成', () => {
@@ -131,6 +132,55 @@ test('未确认的搜索只做 10 分钟短冷却，避免月度打孔卡被锁�
   assert.equal(resolveQuestFailureCooldown('search'), 10 * 60 * 1000);
   assert.equal(resolveQuestFailureCooldown('unknown'), 10 * 60 * 1000);
   assert.equal(resolveQuestFailureCooldown('visit'), 30 * 60 * 1000);
+});
+
+test('按钮写着“查看热门优惠”但 href 是 Bing 搜索时，必须按搜索执行', () => {
+  // 这是月度打孔卡卡在 1/5 的直接原因：旧实现只在文案无法分类时才采信 href，
+  // 「查看热门优惠」被判成 visit，走浏览分支裸开新页（无 Referer），
+  // 官网永远不认这次搜索。
+  const target = {
+    title: '黑色星期五优惠，就在这里',
+    actionText: '查看热门优惠',
+    rawText: '黑色星期五优惠，就在这里\n查看热门优惠',
+    href: 'https://www.bing.com/search?q=2026%E5%B9%B4%E9%BB%91%E8%89%B2%E6%98%9F%E6%9C%9F%E4%BA%94%E4%BC%98%E6%83%A0&form=ML2YB1&OCID=ML2YB1&PUBL=RewardsDO'
+  };
+  assert.equal(classifyQuestAction(target), 'visit');
+  assert.equal(resolveQuestKind(target), 'search');
+});
+
+test('激活类按钮永远优先于 href 搜索判定', () => {
+  // 激活按钮点开后卡片才会展开真正的子任务，不能被误判成搜索。
+  assert.equal(resolveQuestKind({
+    title: '激活活动',
+    actionText: 'Activate quest',
+    href: 'https://www.bing.com/search?q=wrong'
+  }), 'activate');
+});
+
+test('href 不是 Bing 搜索时保持原有分类', () => {
+  assert.equal(resolveQuestKind({
+    title: '了解详情',
+    actionText: '观看视频',
+    href: 'https://example.com/video'
+  }), 'visit');
+  assert.equal(resolveQuestKind({
+    title: '电子产品优惠',
+    actionText: '比较电子产品',
+    href: 'https://example.com/compare'
+  }), 'unknown');
+});
+
+test('打孔卡搜索必须校验必应登录态，不能把游客态搜索当成成功', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const source = fs.readFileSync(
+    path.resolve(import.meta.dirname, '../src/core/browser.js'),
+    'utf-8'
+  );
+  // 两个搜索分支都必须拒绝游客态落地页
+  assert.match(source, /if \(login\?\.isGuest\) \{\s*throw new Error\('打孔卡搜索落地页为必应游客态/);
+  // 直接打开官方链接时必须显式带上 Referer
+  assert.match(source, /referer: searchReferer/);
 });
 
 test('打孔卡执行器对 href 搜索任务也必须真实提交指定搜索词', async () => {

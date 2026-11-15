@@ -16,7 +16,6 @@ import { cookieValue } from './accountIdentity.js';
 import {
   isQuestSubtaskCompleted,
   parseQuestProgress,
-  classifyQuestAction,
   questSubtaskKey,
   isDailyQuestSubtask,
   isQuestSubtaskCoolingDown,
@@ -26,7 +25,8 @@ import {
   extractQuestSearchQuery,
   isQuestSearchTarget,
   resolveQuestFailureCooldown,
-  questVerificationAttempts
+  questVerificationAttempts,
+  resolveQuestKind
 } from './questStatus.js';
 import {
   SPECIAL_ACTIVITIES,
@@ -959,10 +959,9 @@ class BrowserManager extends EventEmitter {
       const progress = parseQuestProgress(item.rawText);
       // href 本身也是微软任务意图的一部分。月度打孔卡可能把动作写成
       // “比较电子产品”，但 href 明确是 bing.com/search?q=...，必须按搜索执行。
-      const classified = classifyQuestAction(item);
-      const kind = classified === 'unknown' && isQuestSearchTarget(item)
-        ? 'search'
-        : classified;
+      // 判定逻辑收进 resolveQuestKind：只要 href 指向 bing.com/search?q=...，
+      // 就按搜索执行，不再依赖按钮文案（activate 仍保持最高优先级）。
+      const kind = resolveQuestKind(item);
       const completed = isQuestSubtaskCompleted(item);
       const locked = item.disabled || item.hasLockIcon;
       return {
@@ -1042,23 +1041,39 @@ class BrowserManager extends EventEmitter {
     const targetIsBingSearch = isQuestSearchTarget({ href: targetUrl || target.href });
     const searchKind = target.kind === 'search' || targetIsBingSearch;
     const popupPromise = context.waitForEvent('page', { timeout: 9000 }).catch(() => null);
+    const subtaskSelector = `[data-msr-subtask="${target.index}"]`;
     let clicked = false;
+    let clickMode = '';
     let navigationFallback = false;
     try {
-      await humanClick(page.locator(`[data-msr-subtask="${target.index}"]`), { page, timeout: 8000 });
+      await humanClick(page.locator(subtaskSelector), { page, timeout: 8000 });
       clicked = true;
+      clickMode = 'human';
     } catch (e) {
-      if (targetUrl) {
-        const fallback = await context.newPage().catch(() => null);
-        if (fallback) {
-          await fallback.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
-          await this.delay(rewardsApi.randomRange(2500, 4500));
-          await fallback.close().catch(() => {});
-          clicked = true;
-        }
+      // 拟人鼠标点击会被全屏遮罩、Cookie 浮层或 React 手势层吃掉：
+      // 鼠标事件落在覆盖层上，链接本身从未触发导航。
+      // 这时必须回到页面内用原生 DOM click 重新触发，而不是另开空白页直接 goto —
+      // 后者会丢掉 Referer，微软服务端就认不出这是从 Rewards 推广链接触发的访问，
+      // 打孔卡子任务的进度永远不会推进。
+      const domClicked = await page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return false;
+        try { el.scrollIntoView({ block: 'center' }); } catch {}
+        el.click();
+        return true;
+      }, subtaskSelector).catch(() => false);
+      if (domClicked) {
+        clicked = true;
+        clickMode = 'dom';
       }
       if (!clicked) throw e;
     }
+    logger.log(
+      '🧩',
+      `打孔卡子任务已触发 (${clickMode === 'dom' ? '页面内原生点击' : '拟人鼠标点击'}): ${target.title || target.actionText || target.index}`,
+      '',
+      accName
+    );
 
     const popup = await Promise.race([popupPromise, this.delay(5500).then(() => null)]);
     let landingPage = popup || null;
@@ -1099,24 +1114,51 @@ class BrowserManager extends EventEmitter {
         // 点击后 popup 已经打开了 Bing 搜索结果页（带 q 与 form/OCID/PUBL 追踪参数）。
         // 这正是打孔卡需要的「通过推广链接触发搜索」，referrer 与参数都完整，
         // 直接停留即可。之前这里强制重输关键词，把追踪参数冲掉，导致任务永远卡住。
+        //
+        // 但必须像 PC 搜索一样校验登录态：popup 里的静默登录若失败，页面仍是游客态，
+        // 微软不会给这次搜索计分。旧实现无条件写 searchSubmitted: true，
+        // 于是「游客态搜索」被当成成功，月度打孔卡长期卡在 1/5、2/5。
+        const login = await this.getBingLoginState(searchPage).catch(() => ({}));
+        if (login?.isGuest) {
+          throw new Error('打孔卡搜索落地页为必应游客态，本次搜索站点不认，已中止以免空跑');
+        }
+        if (login?.userName) {
+          logger.log('👤', `打孔卡搜索登录态确认: ${login.userName}`, '', accName);
+        }
         searchResult = {
           success: true,
           query: questQuery,
           finalUrl: landingUrl,
           searchSubmitted: true,
-          login: {}
+          login: login || {}
         };
       } else if (officialSearchTarget) {
         // 没有可复用的 popup 时，直接访问官网给的这条完整搜索链接，
         // 保留 form/OCID/PUBL 参数，让微软服务端确认「Rewards 推广触发的搜索」。
+        //
+        // 关键：必须显式补上 Referer。新开页面裸 goto 的 Referer 是空的，
+        // 微软服务端就认不出这次搜索来自 Rewards 推广链，子任务进度不会推进。
+        const searchReferer = String(page.url() || quest.url || beforeUrl || '');
         if (!searchPage) searchPage = await this.createPage(context);
-        await searchPage.goto(officialSearchTarget, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
+        await searchPage.goto(officialSearchTarget, {
+          waitUntil: 'domcontentloaded',
+          timeout: 25000,
+          ...(searchReferer ? { referer: searchReferer } : {})
+        }).catch(() => {});
+        // 直接打开官方链接同样要校验登录态，理由同上一分支。
+        const login = await this.getBingLoginState(searchPage).catch(() => ({}));
+        if (login?.isGuest) {
+          throw new Error('打孔卡搜索落地页为必应游客态，本次搜索站点不认，已中止以免空跑');
+        }
+        if (login?.userName) {
+          logger.log('👤', `打孔卡搜索登录态确认: ${login.userName}`, '', accName);
+        }
         searchResult = {
           success: true,
           query: questQuery,
           finalUrl: String(searchPage.url?.() || officialSearchTarget),
           searchSubmitted: true,
-          login: {}
+          login: login || {}
         };
       } else {
         // 仅当既无结果页、也无官方搜索链接时才退回普通关键词搜索。
