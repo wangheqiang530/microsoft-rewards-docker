@@ -26,7 +26,8 @@ import {
   isQuestSearchTarget,
   resolveQuestFailureCooldown,
   questVerificationAttempts,
-  resolveQuestKind
+  resolveQuestKind,
+  selectQuestSubtaskDepth
 } from './questStatus.js';
 import {
   SPECIAL_ACTIVITIES,
@@ -903,57 +904,102 @@ class BrowserManager extends EventEmitter {
    * 返回稳定的动作类型、进度和冷却判断所需信息。
    */
   async scanQuestSubtasks(page) {
-    const rawItems = await page.evaluate(() => {
-      const headings = [...document.querySelectorAll('h3')].filter(h => {
-        const t = (h.innerText || '').trim();
-        return t && !t.includes('条款和条件') && !t.includes('Terms');
+    // 分两步求值：先只采集「h3 → 祖先链」的结构统计，交给纯函数
+    // selectQuestSubtaskDepth 决定每张卡片的容器边界；再按该边界取容器、
+    // 抽 CTA 并打编号。
+    //
+    // 之前一次求值就边冒泡边判定的写法会越过卡片边界落到共享外层容器：
+    // 那里只有一个 CTA，于是所有子任务共用一个 href、共用同一个 DOM 节点，
+    // data-msr-subtask 被反复覆盖，最后 locator 找不到目标而超时，任务永不推进。
+    let rawItems = null;
+    for (let attempt = 0; attempt < 3 && rawItems === null; attempt++) {
+      const layout = await page.evaluate(() => {
+        const headings = [...document.querySelectorAll('h3')].filter(h => {
+          const t = (h.innerText || '').trim();
+          return t && !t.includes('条款和条件') && !t.includes('Terms');
+        });
+        return headings.map(h => {
+          const frames = [];
+          let node = h;
+          for (let depth = 0; depth < 9 && node; depth++) {
+            frames.push({
+              h3Count: node.querySelectorAll('h3').length,
+              linkCount: node.querySelectorAll('a[href], button').length,
+              isBody: node === document.body
+            });
+            if (node === document.body) break;
+            node = node.parentElement;
+            if (!node) break;
+          }
+          return { title: (h.innerText || '').trim(), frames };
+        });
       });
-      const items = [];
-      for (let i = 0; i < headings.length; i++) {
-        const h = headings[i];
-        let container = h;
-        for (let depth = 0; depth < 8 && container?.parentElement; depth++) {
-          container = container.parentElement;
-          if (container === document.body) break;
-          if (container.querySelectorAll('h3').length > 1) break;
-          if (container.querySelectorAll('a[href], button').length > 0) break;
+      if (!Array.isArray(layout)) break;
+
+      const depthByHeading = layout.map(item => selectQuestSubtaskDepth(item.frames));
+      const applied = await page.evaluate(({ depths, expectedHeadings }) => {
+        const headings = [...document.querySelectorAll('h3')].filter(h => {
+          const t = (h.innerText || '').trim();
+          return t && !t.includes('条款和条件') && !t.includes('Terms');
+        });
+        // 两次求值之间页面若发生重渲染，标题数量会变，索引不再可信，直接重扫。
+        if (headings.length !== expectedHeadings) return { ok: false, reason: 'headings-changed' };
+
+        // 上一轮留下的编号必须先清掉，否则旧标记会指向这一轮之外的元素。
+        document.querySelectorAll('[data-msr-subtask]').forEach(el => el.removeAttribute('data-msr-subtask'));
+
+        const items = [];
+        for (let i = 0; i < headings.length; i++) {
+          const depth = Number(depths?.[i]);
+          if (!Number.isFinite(depth) || depth < 0) continue;
+          const h = headings[i];
+          let container = h;
+          for (let step = 0; step < depth && container; step++) container = container.parentElement;
+          if (!container || container === document.body) continue;
+
+          const rawText = container.innerText || '';
+          const hasSuccessIcon = !!container.querySelector(
+            '[class*="bg-statusSuccessRewardsBg"], [class*="statusSuccessRewards"], [data-testid*="complete" i]'
+          );
+          const hasEmptyCircle = !!container.querySelector('[class*="border-ctrlChoiceBaseStrokeRest"]');
+          const hasLockIcon = !!container.querySelector('[class*="Lock"], [class*="lock"], [aria-label*="锁定"], [aria-label*="Locked"]');
+          const links = [...container.querySelectorAll('a[href], button')].filter(a => {
+            if (a.closest('header') || a.closest('footer')) return false;
+            const href = a.getAttribute('href') || '';
+            if (/\/account\/general|\/rewards\/about|\/rewards\/faq|\/rewards\/redeem/i.test(href)) return false;
+            return true;
+          });
+          if (links.length === 0) continue;
+
+          const link = links[0];
+          const disabled = link.getAttribute('aria-disabled') === 'true'
+            || link.getAttribute('data-disabled') === 'true'
+            || link.disabled === true;
+          // 编号必须连续，locator [data-msr-subtask="N"] 依赖这一点。
+          const index = items.length + 1;
+          link.setAttribute('data-msr-subtask', String(index));
+          items.push({
+            index,
+            title: (h.innerText || '').trim(),
+            actionText: (link.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 80),
+            href: link.getAttribute('href') || '',
+            tag: link.tagName,
+            rawText,
+            hasSuccessIcon,
+            hasEmptyCircle,
+            hasLockIcon,
+            disabled
+          });
         }
-        if (!container) continue;
+        return { ok: true, items };
+      }, { depths: depthByHeading, expectedHeadings: layout.length });
 
-        const rawText = container.innerText || '';
-        const hasSuccessIcon = !!container.querySelector(
-          '[class*="bg-statusSuccessRewardsBg"], [class*="statusSuccessRewards"], [data-testid*="complete" i]'
-        );
-        const hasEmptyCircle = !!container.querySelector('[class*="border-ctrlChoiceBaseStrokeRest"]');
-        const hasLockIcon = !!container.querySelector('[class*="Lock"], [class*="lock"], [aria-label*="锁定"], [aria-label*="Locked"]');
-        const links = [...container.querySelectorAll('a[href], button')].filter(a => {
-          if (a.closest('header') || a.closest('footer')) return false;
-          const href = a.getAttribute('href') || '';
-          if (/\/account\/general|\/rewards\/about|\/rewards\/faq|\/rewards\/redeem/i.test(href)) return false;
-          return true;
-        });
-        if (links.length === 0) continue;
-
-        const link = links[0];
-        const disabled = link.getAttribute('aria-disabled') === 'true'
-          || link.getAttribute('data-disabled') === 'true'
-          || link.disabled === true;
-        link.setAttribute('data-msr-subtask', String(i + 1));
-        items.push({
-          index: i + 1,
-          title: (h.innerText || '').trim(),
-          actionText: (link.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 80),
-          href: link.getAttribute('href') || '',
-          tag: link.tagName,
-          rawText,
-          hasSuccessIcon,
-          hasEmptyCircle,
-          hasLockIcon,
-          disabled
-        });
+      if (applied?.ok) {
+        rawItems = applied.items;
+        break;
       }
-      return items;
-    });
+      await this.delay(300);
+    }
 
     return (rawItems || []).map(item => {
       const progress = parseQuestProgress(item.rawText);

@@ -117,6 +117,40 @@ export function questSubtaskKey({ href = '', title = '', actionText = '', kind =
   return `${kind}|text:${normalizeKeyPart(title)}|${normalizeKeyPart(actionText)}`;
 }
 
+/**
+ * 从打孔卡子任务的「h3 → 祖先链」帧信息里，选出这张卡片自己的容器。
+ *
+ * 微软的月度打孔卡是「一层共享外层容器 + 每张卡片各自的 div」。旧实现一路上溯到
+ * 第一个带可点击元素的祖先就停下，于是越过卡片边界落到共享外层：那里只有一个
+ * CTA 链接，所有子任务都被指到同一个元素、同一个 href，编号还会互相覆盖，
+ * 最终 locator 找不到目标而超时（3 × 8s = 24s），任务永远不推进。
+ *
+ * frames[0] 是 h3 自身，frames[i] 是第 i 层祖先；每帧带 h3Count（后代 h3 数量）
+ * 与 linkCount（后代可点击元素数量），isBody 标记 document.body。一旦某个祖先里
+ * 出现第二个 h3，说明已经跨过卡片边界，必须停在上一层，不能采纳它；body 本身
+ * 永远不采纳（它含全站导航链接）。返回 -1 表示这张卡片没有可用容器。
+ *
+ * 返回值是 frames 下标；调用方从 h3 上溯同样层数即可拿到同一个容器，
+ * 因此这里只做纯计算，不依赖 DOM。options.depthLimit 用于收窄上溯深度。
+ */
+export function selectQuestSubtaskDepth(frames = [], options = {}) {
+  if (!Array.isArray(frames) || frames.length === 0) return -1;
+  const rawLimit = Number(options.depthLimit);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0
+    ? Math.min(frames.length, Math.floor(rawLimit))
+    : frames.length;
+  let chosen = -1;
+  for (let depth = 0; depth < limit; depth++) {
+    const frame = frames[depth];
+    if (!frame) break;
+    if (frame.isBody === true) break;
+    if (Number(frame.h3Count || 0) > 1) break;
+    chosen = depth;
+    if (Number(frame.linkCount || 0) > 0) break;
+  }
+  return chosen;
+}
+
 export function isDailyQuestSubtask({ kind = '', rawText = '' } = {}) {
   if (kind === 'search') return true;
   return /24\s*小时|每天|每日|daily|streak|连续/i.test(String(rawText || ''));
