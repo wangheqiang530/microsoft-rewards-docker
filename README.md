@@ -3,7 +3,7 @@
 **把微软积分日常，交给一台不休息的小容器。**
 基于 Docker + WebUI，适合 NAS、VPS 和家用服务器。多账号管理、每日任务、浏览器登录、代理与运行计划，都在一个网页里完成。
 
-[![Version](https://img.shields.io/badge/version-v1.10.21-blue.svg)](https://github.com/wangheqiang530/microsoft-rewards-docker/releases/tag/v1.10.21)
+[![Version](https://img.shields.io/badge/version-v1.10.22-blue.svg)](https://github.com/wangheqiang530/microsoft-rewards-docker/releases/tag/v1.10.22)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com/)
 [![Node.js](https://img.shields.io/badge/Node.js-20+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
@@ -151,6 +151,27 @@ docker run -d \
 
 消息推送另有一套完全独立的专用代理，不复用积分任务或账号代理。可以在每个推送渠道旁单独勾选是否启用该推送代理。
 消息推送中的 `socks5://` 会自动按 `socks5h://` 使用远端 DNS，避免 Telegram 等域名被容器本地 DNS 污染。Telegram 还提供不发送消息的“检测连接”按钮，可查看 Bot、Chat ID 与真实 API 延迟。
+
+---
+
+## 🔔 推送规则
+
+消息推送选项卡顶部有三个互相独立的开关，决定**什么时候**推消息：
+
+| 开关 | 触发时机 | 正文内容 |
+| --- | --- | --- |
+| 每个账号运行结束后推送执行结果 | 每个账号跑完立刻一条 | 本轮/今日积分、余额、任务完成数、未完成任务；被跳过或中断时写明原因 |
+| 账号运行失败时推送告警 | 抛异常、凭据异常、地区拦截 | 失败原因 + 处理建议 |
+| 推送全天积分汇总 | 按自定义 cron 表达式定时 | 今日合计、总余额、待领取、印章、逐账号明细表 |
+
+- 汇总时间用 5 段 cron 表达式（分 时 日 月 周），默认 `0 22 * * *`，即每天 22:00。填错会被保存接口当场拒绝，不会静默改成默认值。
+- 汇总**独立于**「自动定时巡检」开关：即使关掉自动巡检、只手动跑任务，到点照样收汇总。
+- 换新版本后三个开关默认全开，老配置文件升级不会静默。
+- 到点时若正在跑打卡，不会读到半截数据直接推送，而是每 5 分钟重试一次（最多 12 次），任务一结束立刻补推。
+- 推送记录写在 `data/daily_summary_state.json`：容器停机跨过汇总时刻的话，下次启动会检测到「今天该推还没推」并立刻补一条，不会整天静默。补推只对 `0 22 * * *` 这类每天固定时刻的表达式生效，步长或限定星期的写法交给 cron 自己触发。
+- 只有**真正送达**才记「今天推过」。一个渠道都没配、或全部渠道都失败时不会记账，配好渠道或网络恢复后当天仍能收到补推。
+- 「立即推送汇总」按钮可以不等定时，马上推一条当前汇总，用来验证渠道是否通畅。
+- 正文按纯文本排版（Telegram 渠道不发送 Markdown），超过 3500 字符自动截断，避免触发渠道长度上限。
 
 ---
 

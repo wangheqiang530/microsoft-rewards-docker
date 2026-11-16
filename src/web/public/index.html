@@ -22,7 +22,7 @@
           <!-- 版本与状态复合胶囊 (结合更新检测与状态展示) -->
           <div class="version-status-pill status-idle" id="version-status-pill" title="系统状态: 后台定时就绪中 | 点击检查版本更新">
             <span class="status-dot"></span>
-            <span class="version-label" id="version-label">v1.10.21</span>
+            <span class="version-label" id="version-label">v1.10.22</span>
             <span class="update-indicator" id="update-indicator" style="display: none;">
               <span class="update-icon">🚀</span>
               <span class="update-text" id="update-text">有更新</span>
@@ -896,6 +896,33 @@
 
         <!-- Tab: 消息推送 -->
         <div class="tab-content" id="tab-notify">
+          <div class="notify-proxy-panel notify-report-panel">
+            <div class="proxy-section-title">
+              <div>
+                <span>推送规则</span>
+                <small>控制什么时候推消息。三个开关互相独立，关闭后对应的消息一律不发。</small>
+              </div>
+            </div>
+            <label class="notify-proxy-toggle notify-report-toggle">
+              <input type="checkbox" id="cfg-notify-report-account-run">
+              <span>每个账号运行结束后推送执行结果</span>
+            </label>
+            <label class="notify-proxy-toggle notify-report-toggle">
+              <input type="checkbox" id="cfg-notify-report-failure">
+              <span>账号运行失败时推送告警（含失败原因）</span>
+            </label>
+            <label class="notify-proxy-toggle notify-report-toggle">
+              <input type="checkbox" id="cfg-notify-report-daily-enabled">
+              <span>推送全天积分汇总（含每账号明细表）</span>
+            </label>
+            <div class="notify-proxy-input-row">
+              <input type="text" id="cfg-notify-report-daily-cron" class="form-input" placeholder="0 22 * * *">
+              <button type="button" id="btn-test-notify-report" class="btn btn-secondary btn-sm">立即推送汇总</button>
+            </div>
+            <div id="test-notify-report-result" class="proxy-card-status"></div>
+            <small class="form-hint">汇总时间用 5 段 cron 表达式（分 时 日 月 周），例如 <code>0 22 * * *</code> 表示每天 22:00。汇总与「自动定时巡检」开关无关，关掉巡检也照常推送。</small>
+          </div>
+
           <div class="notify-proxy-panel">
             <div class="proxy-section-title">
               <div>

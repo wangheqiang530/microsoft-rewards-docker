@@ -4,6 +4,7 @@ import { DATA_DIR, writeFileAtomic } from './fsUtil.js';
 import { removeBrowserSession } from './core/browserSession.js';
 import { webIdentityKey } from './core/accountIdentity.js';
 import { normalizeNotificationProxyUrl, normalizeProxyUrl, safeProxyId } from './core/proxy.js';
+import { normalizeReportSettings } from './core/reportBuilder.js';
 import {
   RUN_HOURS,
   buildTimeSlot,
@@ -110,6 +111,15 @@ const DEFAULT_CONFIG = {
       clientSecret: '',
       openId: '',
       groupOpenId: ''
+    },
+    // 推送规则开关：账号跑完推一条、失败推一条、每日定时汇总
+    reports: {
+      accountRun: true,
+      failure: true,
+      dailySummary: {
+        enabled: true,
+        cron: '0 22 * * *'
+      }
     }
   },
   ui: {
@@ -881,6 +891,13 @@ class ConfigManager {
       const currentProxy = this.config.notify?.proxy || {};
       const mergedProxy = this.mergeDeep(structuredClone(currentProxy), patch.notify.proxy);
       patch.notify.proxy = this.normalizeNotifyProxyConfig(mergedProxy);
+    }
+
+    // 推送规则也做一次规范化：缺字段按「开启」补齐，cron 为空回退默认时刻
+    if (patch.notify?.reports) {
+      const currentReports = normalizeReportSettings(this.config.notify?.reports);
+      const mergedReports = this.mergeDeep(structuredClone(currentReports), patch.notify.reports);
+      patch.notify.reports = normalizeReportSettings(mergedReports);
     }
 
     // 如果更新的是单账号字段 account，同步更新到第一个账号或指定账号

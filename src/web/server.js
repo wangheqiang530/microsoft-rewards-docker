@@ -1,4 +1,5 @@
 import express from 'express';
+import cron from 'node-cron';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -18,6 +19,7 @@ import epicManager, { normalizeAutoClaimTime } from '../core/epic.js';
 import { accountContextLock } from '../core/contextLock.js';
 import { isDemoMode } from '../core/demoMode.js';
 import { normalizeProxyUrl } from '../core/proxy.js';
+import { buildDailySummaryReport } from '../core/reportBuilder.js';
 import microsoftLoginWindow, { isVncAvailable } from '../core/microsoftLoginWindow.js';
 import { checkGpuCapability } from '../core/gpuProbe.js';
 import { getFontStatus, refreshFontCache } from '../core/fontStatus.js';
@@ -30,7 +32,7 @@ import { endJson, startJsonHeartbeat } from './jsonHeartbeat.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const CURRENT_VERSION = '1.10.21';
+const CURRENT_VERSION = '1.10.22';
 
 let lastCpuInfo = os.cpus().map(c => c.times);
 
@@ -873,6 +875,11 @@ export function createServer() {
       if (Array.isArray(req.body?.accounts) && accountContextLock.isBusy()) {
         return res.status(409).json({ success: false, message: '任务正在执行中，暂不能保存账号配置' });
       }
+      // 每日汇总的 cron 表达式必须当场校验：存进去再回退默认值，用户会以为自己的设置生效了
+      const summaryCron = req.body?.notify?.reports?.dailySummary?.cron;
+      if (typeof summaryCron === 'string' && summaryCron.trim() && !cron.validate(summaryCron.trim())) {
+        return res.status(400).json({ success: false, message: `每日汇总的 cron 表达式无效：${summaryCron}` });
+      }
       const updated = configManager.update(req.body);
       scheduler.restart();
       logger.log('⚙️', '配置已更新并已生效');
@@ -1476,6 +1483,40 @@ export function createServer() {
     try {
       await notifier.testChannel(channel, value, proxy);
       res.json({ success: true, message: '测试消息发送成功' });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  // 立即推送一次每日汇总（用于验证 cron 设置与渠道是否通畅）
+  app.post('/api/notify/report/preview', async (req, res) => {
+    try {
+      const summary = taskManager.computeSummary();
+      const { title, content } = buildDailySummaryReport({ summary });
+      const results = await notifier.send(title, content);
+      // send() 在没有任何渠道被配置时返回 undefined，此时不能谎报“已推送”
+      if (!Array.isArray(results) || results.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: '还没有配置任何推送渠道，请先填写并保存至少一个渠道',
+          data: { title, content }
+        });
+      }
+      const failed = results.filter(r => r.status === 'rejected').length;
+      const succeeded = results.length - failed;
+      if (succeeded === 0) {
+        const reason = results.find(r => r.status === 'rejected')?.reason?.message || '所有渠道均推送失败';
+        return res.status(500).json({
+          success: false,
+          message: `汇总推送失败：${reason}`,
+          data: { title, content }
+        });
+      }
+      res.json({
+        success: true,
+        message: failed > 0 ? `汇总已推送（${succeeded} 个渠道成功，${failed} 个失败）` : `汇总已推送到 ${succeeded} 个渠道`,
+        data: { title, content }
+      });
     } catch (e) {
       res.status(500).json({ success: false, message: e.message });
     }

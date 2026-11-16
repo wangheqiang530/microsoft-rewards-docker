@@ -5,6 +5,13 @@ import configManager from './config.js';
 import logger from './logger.js';
 import taskManager from './core/taskManager.js';
 import epicManager from './core/epic.js';
+import notifier from './core/notifier.js';
+import {
+  DEFAULT_DAILY_SUMMARY_CRON,
+  buildDailySummaryReport,
+  normalizeReportSettings,
+  parseDailyCronTime
+} from './core/reportBuilder.js';
 import { DATA_DIR, writeFileAtomic } from './fsUtil.js';
 import {
   MAX_START_DELAY_MINUTES,
@@ -15,14 +22,45 @@ import {
 } from './core/scheduleWindow.js';
 
 const PLAN_FILE = path.join(DATA_DIR, 'schedule_plan.json');
+// 每日汇总的推送记录：只用来判断「今天这个点过了，但我还没推过」，
+// 也就是容器半夜重启 / 白天停机导致错过汇总时，启动后补一条。
+const SUMMARY_STATE_FILE = path.join(DATA_DIR, 'daily_summary_state.json');
+// 汇总到点正好在跑任务时，隔多久再试一次，以及最多试几次
+const SUMMARY_RETRY_DELAY_MS = 5 * 60 * 1000;
+const SUMMARY_RETRY_LIMIT = 12;
 const PLAN_VERSION = 3;
 
 class Scheduler {
   constructor() {
     this.job = null;
     this.epicJob = null;
+    // 每日积分汇总的独立 job：不受 schedule.enabled 影响，
+    // 用户关掉自动巡检也应该照常收到当天汇总。
+    this.summaryJob = null;
+    this.summaryRetryTimer = null;
+    this.dailySummaryStopped = false;
+    this.lastSummaryDate = 0;
     this.plannedDailyRuns = {};
     this.loadPlans();
+    this.loadSummaryState();
+  }
+
+  loadSummaryState() {
+    try {
+      if (!fs.existsSync(SUMMARY_STATE_FILE)) return;
+      const parsed = JSON.parse(fs.readFileSync(SUMMARY_STATE_FILE, 'utf-8'));
+      const last = Number(parsed?.lastSummaryDate);
+      if (Number.isFinite(last)) this.lastSummaryDate = last;
+    } catch {}
+  }
+
+  saveSummaryState() {
+    try {
+      writeFileAtomic(SUMMARY_STATE_FILE, JSON.stringify({ lastSummaryDate: this.lastSummaryDate }, null, 2), {
+        encoding: 'utf-8',
+        mode: 0o600
+      });
+    } catch {}
   }
 
   loadPlans() {
@@ -248,7 +286,12 @@ class Scheduler {
 
   start() {
     this.stop();
+    // stop() 会把汇总标记为「已停止」（避免退出后还在重试），
+    // restart() 走的是 start()，这里必须复位，否则改一次配置就再也收不到汇总。
+    this.dailySummaryStopped = false;
     const cfg = configManager.get();
+    // 每日汇总独立于自动巡检开关，必须在下面的早退之前注册
+    this.startSummaryJob();
     if (!cfg.schedule?.enabled) {
       logger.log('⏸️', '后台自动定时巡检当前已禁用');
       // Epic 自动领取独立于微软定时开关
@@ -297,6 +340,99 @@ class Scheduler {
 
     logger.log('🟢', `后台小时窗口调度引擎已就绪 (00:00-24:00，共 ${RUN_HOURS.length} 个一小时档位，每档 0-${MAX_START_DELAY_MINUTES} 分钟随机启动)`);
     this.startEpicJob();
+  }
+
+  /**
+   * 每日积分汇总推送。
+   *
+   * 与自动巡检完全解耦：即使 schedule.enabled=false（用户只想手动跑），
+   * 到点也该收到当天的积分汇总。cron 表达式由 notify.reports.dailySummary.cron 决定。
+   */
+  startSummaryJob() {
+    if (this.summaryJob) {
+      this.summaryJob.stop();
+      this.summaryJob = null;
+    }
+    const settings = normalizeReportSettings(configManager.get().notify?.reports);
+    if (!settings.dailySummary.enabled) {
+      logger.log('⏸️', '每日积分汇总推送已禁用');
+      return;
+    }
+    let expression = settings.dailySummary.cron || DEFAULT_DAILY_SUMMARY_CRON;
+    if (!cron.validate(expression)) {
+      logger.log('🟡', `每日汇总 cron 表达式无效（${expression}），已回退到默认 ${DEFAULT_DAILY_SUMMARY_CRON}`);
+      expression = DEFAULT_DAILY_SUMMARY_CRON;
+    }
+    this.summaryJob = cron.schedule(expression, () => {
+      this.runDailySummary(expression);
+    });
+    logger.log('📮', `每日积分汇总推送已就绪（cron: ${expression}）`);
+    // 容器停机可能整段跨过汇总时刻（cron 不会补发），启动时补一次
+    this.catchUpDailySummary(expression);
+  }
+
+  /**
+   * 补推：如果「今天该推的时点已经过了」，但今天还没推过，就立刻补一条。
+   *
+   * 只处理 `分 时 * * *` 这种每天固定时刻的表达式——其它形状（步长、星期限定）
+   * 没法可靠判断「今天是否漏了」，硬补反而可能打扰，就交给 cron 自己触发。
+   */
+  catchUpDailySummary(expression = DEFAULT_DAILY_SUMMARY_CRON, now = new Date()) {
+    const time = parseDailyCronTime(expression);
+    if (!time) return;
+    const today = this.getTodayNum();
+    if (this.lastSummaryDate === today) return;
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    if (nowMin < time.hour * 60 + time.minute) return;
+    logger.log('📮', `检测到今天(${today})的 ${String(time.hour).padStart(2, '0')}:${String(time.minute).padStart(2, '0')} 汇总时刻已过但尚未推送，立即补推一次`);
+    this.runDailySummary(expression);
+  }
+
+  /**
+   * 真正执行一次汇总推送。
+   *
+   * 到点时如果正好在跑打卡，绝不能直接放弃——cron 是按天触发的，错过这一天
+   * 用户就彻底收不到汇总了（这正是老版本「从来没收到过汇总」的痛点）。
+   * 所以这里排队重试，直到任务跑完再推。
+   */
+  async runDailySummary(expression = DEFAULT_DAILY_SUMMARY_CRON, attempt = 0) {
+    if (this.dailySummaryStopped) return;
+    if (taskManager.running) {
+      if (attempt >= SUMMARY_RETRY_LIMIT) {
+        logger.log('🟡', `每日汇总已重试 ${SUMMARY_RETRY_LIMIT} 次仍与任务执行冲突，本次汇总放弃`);
+        return;
+      }
+      const delayMin = Math.round(SUMMARY_RETRY_DELAY_MS / 60000);
+      logger.log('🟡', `每日汇总到点时任务仍在运行，${delayMin} 分钟后重试（第 ${attempt + 1}/${SUMMARY_RETRY_LIMIT} 次）`);
+      this.summaryRetryTimer = setTimeout(() => {
+        this.summaryRetryTimer = null;
+        this.runDailySummary(expression, attempt + 1);
+      }, SUMMARY_RETRY_DELAY_MS);
+      // 不因为这个重试把进程钉在内存里
+      this.summaryRetryTimer.unref?.();
+      return;
+    }
+    try {
+      const summary = taskManager.computeSummary();
+      const { title, content } = buildDailySummaryReport({ summary });
+      const results = await notifier.send(title, content);
+      const fulfilled = Array.isArray(results) ? results.filter(r => r.status === 'fulfilled').length : 0;
+      if (Array.isArray(results) && results.length > 0) {
+        const failed = results.length - fulfilled;
+        logger.log('📮', `每日积分汇总已推送（${fulfilled}/${results.length} 个渠道成功，cron: ${expression}）`);
+      } else {
+        logger.log('🟡', '每日积分汇总已生成，但没有配置任何推送渠道，未发送');
+      }
+      // 只有真正送出去才记「今天推过」：
+      //   - 没配渠道 / 全部渠道失败时不记，否则用户当天配好渠道也收不到补推；
+      //   - 记了之后重启不再重复补推，避免变成骚扰。
+      if (fulfilled > 0) {
+        this.lastSummaryDate = this.getTodayNum();
+        this.saveSummaryState();
+      }
+    } catch (e) {
+      logger.log('🔴', `每日积分汇总推送异常: ${e.message}`);
+    }
   }
 
   /** 指定时刻是否已到达当天的 Epic 自动领取启动时间（HH:MM） */
@@ -359,6 +495,15 @@ class Scheduler {
     if (this.job) {
       this.job.stop();
       this.job = null;
+    }
+    this.dailySummaryStopped = true;
+    if (this.summaryRetryTimer) {
+      clearTimeout(this.summaryRetryTimer);
+      this.summaryRetryTimer = null;
+    }
+    if (this.summaryJob) {
+      this.summaryJob.stop();
+      this.summaryJob = null;
     }
     if (this.epicJob) {
       this.epicJob.stop();

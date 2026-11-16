@@ -10,6 +10,11 @@ import browserManager from './browser.js';
 import { accountContextLock } from './contextLock.js';
 import { SearchStagnationGuard, normalizeStagnantLimit } from './searchStagnation.js';
 import {
+  normalizeReportSettings,
+  buildAccountRunReport,
+  buildAccountFailureReport
+} from './reportBuilder.js';
+import {
   accountNamesLikelyMatch,
   isBalanceMismatch,
   searchTierFromMax,
@@ -37,7 +42,6 @@ export class TaskManager {
   constructor() {
     this.running = false;
     this.runningAccountId = null;
-    this.lastUnifiedReportDate = 0;
     this.turboMode = false;
     this.stats = this.loadStats();
   }
@@ -2226,7 +2230,7 @@ export class TaskManager {
     const isTurbo = options.turbo === true;
     if (this.isAccountPaused(accountId)) {
       logger.log('⏸️', `账号 [${accountName}] 已暂停，跳过自动执行`, '', accountName);
-      return;
+      return { accountId, accountName, status: 'skipped', reason: '账号已被暂停' };
     }
     this.runningAccountId = accountId;
     const accStats = this.ensureAccountStats(accountId);
@@ -2243,11 +2247,11 @@ export class TaskManager {
     const initialBlockReason = this.getHardAccountBlockReason(accCfg);
     if (initialBlockReason) {
       logger.log('🛡️', `账号凭据异常，已跳过本次自动化任务：${initialBlockReason}`, accountName);
-      return;
+      return { accountId, accountName, status: 'skipped', reason: `账号凭据异常：${initialBlockReason}` };
     }
     if (!initialSync) {
       logger.log('🛡️', '无法读取微软官网状态，已跳过本次自动化任务，避免盲目重试', accountName);
-      return;
+      return { accountId, accountName, status: 'skipped', reason: '无法读取微软官网状态' };
     }
 
     // 2. 检查是否所有任务今日均已达标完成
@@ -2257,7 +2261,7 @@ export class TaskManager {
     ));
     if (isAllDone && !globalCfg.tasks?.keepRunning) {
       logger.log('💤', `账号 [${accountName}] 今日所有打卡任务已全部满额达成，无需重复执行，直接结束！`, '', accountName);
-      return;
+      return { accountId, accountName, status: 'skipped', reason: '今日任务已全部满额完成' };
     }
 
     // syncAccountOfficialStatus 已优先从网页端拿到真实余额；只有它没拿到时才回退 DAPI。
@@ -2340,7 +2344,14 @@ export class TaskManager {
       });
     }
 
-    if (!this.running || this.isAccountPaused(accountId)) return;
+    if (!this.running || this.isAccountPaused(accountId)) {
+      return {
+        accountId,
+        accountName,
+        status: 'stopped',
+        reason: this.running ? '账号被暂停，本次执行中断' : '任务被手动停止'
+      };
+    }
 
     // 2. 新闻资讯自动阅读 (严格增量模式：缺几篇读几篇)
     if (globalCfg.tasks?.read && tokenOk && this.running) {
@@ -2381,7 +2392,14 @@ export class TaskManager {
       }
     }
 
-    if (!this.running || this.isAccountPaused(accountId)) return;
+    if (!this.running || this.isAccountPaused(accountId)) {
+      return {
+        accountId,
+        accountName,
+        status: 'stopped',
+        reason: this.running ? '账号被暂停，本次执行中断' : '任务被手动停止'
+      };
+    }
 
     // 2.5 移动端 DAPI 附加活动。
     const wantAppPromotions = globalCfg.tasks?.appPromotions !== false;
@@ -2396,7 +2414,14 @@ export class TaskManager {
       }
     }
 
-    if (!this.running || this.isAccountPaused(accountId)) return;
+    if (!this.running || this.isAccountPaused(accountId)) {
+      return {
+        accountId,
+        accountName,
+        status: 'stopped',
+        reason: this.running ? '账号被暂停，本次执行中断' : '任务被手动停止'
+      };
+    }
 
     // 3. 活动卡片 / 每日活动集 / 桌面端打孔卡（三个真正独立的开关）
     const wantDailySet = globalCfg.tasks?.dailySet !== false;
@@ -2573,7 +2598,14 @@ export class TaskManager {
       }
     }
 
-    if (!this.running || this.isAccountPaused(accountId)) return;
+    if (!this.running || this.isAccountPaused(accountId)) {
+      return {
+        accountId,
+        accountName,
+        status: 'stopped',
+        reason: this.running ? '账号被暂停，本次执行中断' : '任务被手动停止'
+      };
+    }
 
     // 3.5 特殊活动：只处理官网实际返回该卡片的账号。
     //     当前支持“浏览器中的奖励”，没有该 offerId 的账号不会启动浏览器。
@@ -2586,7 +2618,14 @@ export class TaskManager {
       }
     }
 
-    if (!this.running || this.isAccountPaused(accountId)) return;
+    if (!this.running || this.isAccountPaused(accountId)) {
+      return {
+        accountId,
+        accountName,
+        status: 'stopped',
+        reason: this.running ? '账号被暂停，本次执行中断' : '任务被手动停止'
+      };
+    }
 
     // 4. 必应 PC 搜索任务与仪表盘同步
     const info = await rewardsApi.getRewardsInfo();
@@ -2627,7 +2666,7 @@ export class TaskManager {
       if (!quota.ok) {
         if (quota.stopped) {
           logger.log('🛑', '已停止搜索配额重试，不再等待剩余退避时间', accountName);
-          return;
+          return { accountId, accountName, status: 'stopped', reason: '任务被手动停止（搜索配额重试中断）' };
         }
         logger.log('🛡️', `${quota.reason}，本轮跳过 PC 搜索，不沿用旧进度或默认 60 分`, accountName);
         this.updateTask('search', {
@@ -2734,7 +2773,14 @@ export class TaskManager {
       }
     }
 
-    if (!this.running || this.isAccountPaused(accountId)) return;
+    if (!this.running || this.isAccountPaused(accountId)) {
+      return {
+        accountId,
+        accountName,
+        status: 'stopped',
+        reason: this.running ? '账号被暂停，本次执行中断' : '任务被手动停止'
+      };
+    }
 
     // 4.5 任务区打孔卡 (如「十月必看五大亮点」这类每天解锁一个的任务)
     //     旧版本完全没处理这类任务，导致官网上长期停在 0/5。
@@ -2809,7 +2855,14 @@ export class TaskManager {
       }
     }
 
-    if (!this.running || this.isAccountPaused(accountId)) return;
+    if (!this.running || this.isAccountPaused(accountId)) {
+      return {
+        accountId,
+        accountName,
+        status: 'stopped',
+        reason: this.running ? '账号被暂停，本次执行中断' : '任务被手动停止'
+      };
+    }
 
     // 5. 连签检测与额外积分领取
     //    视觉搜索补签只在任务执行期尝试（每账号每天一次），读取进度的同步流程不再触发
@@ -2853,6 +2906,7 @@ export class TaskManager {
     return {
       accountId,
       accountName,
+      status: 'ok',
       startBalance: runStartBalance,
       endBalance: runEndBalance,
       runEarned,
@@ -3013,6 +3067,8 @@ export class TaskManager {
 
     try {
       const globalCfg = configManager.get();
+      // 推送开关：账号级结果 / 失败告警 / 每日汇总（汇总的 cron 由 scheduler 读取同一份配置）
+      const reportSettings = normalizeReportSettings(globalCfg.notify?.reports);
       // 没有 Cookie 也没有 Token 的账号直接跳过：
       // 否则它会在没有凭据的情况下执行，可能误用到别的账号的会话
       const allAccounts = configManager.getAccounts()
@@ -3022,6 +3078,18 @@ export class TaskManager {
         .filter(item => item.reason);
       for (const { acc, reason } of blockedAccounts) {
         logger.log('🛡️', `账号凭据异常，定时任务已跳过 [${acc.name || acc.id}]：${reason}`, '', acc.name || acc.id);
+      }
+      // 凭据异常账号以前是完全静默的，用户只会觉得「今天没跑」，这里按失败告警开关推一条
+      if (reportSettings.failure && blockedAccounts.length > 0) {
+        try {
+          const lines = blockedAccounts.map(({ acc, reason }) => `• ${acc.name || acc.id}：${reason}`);
+          await notifier.send(
+            '账号凭据异常，已跳过执行',
+            `以下 ${blockedAccounts.length} 个账号因凭据异常未执行：\n${lines.join('\n')}\n\n处理建议：在账号管理中重新登录或更新 Cookie / Token。`
+          );
+        } catch (pushError) {
+          logger.log('🔴', `凭据异常告警推送未送达: ${pushError.message}`);
+        }
       }
       const runnableAccounts = allAccounts.filter(acc => !this.getHardAccountBlockReason(acc));
       const targetList = (targetAccountId && targetAccountId !== 'all')
@@ -3039,7 +3107,17 @@ export class TaskManager {
       const regionOk = await rewardsApi.checkRegion();
       if (!regionOk) {
         logger.log('🔴', '地区检测未通过（当前非中国大陆 IP 且锁区开启），终止执行以防封号！');
-        await notifier.send('任务停止警告', '检测到非中国大陆出口 IP，为防止被微软风控已自动停止打卡。');
+        // 地区拦截属于「本次运行失败」，跟随失败告警开关
+        if (reportSettings.failure) {
+          try {
+            await notifier.send(
+              '任务停止警告',
+              '失败原因：检测到非中国大陆出口 IP，为防止被微软风控已自动停止打卡。\n处理建议：检查代理或全局网络出口后重新运行。'
+            );
+          } catch (pushError) {
+            logger.log('🔴', `任务停止警告推送未送达: ${pushError.message}`);
+          }
+        }
         return false;
       }
 
@@ -3056,17 +3134,39 @@ export class TaskManager {
         }
         try {
           const result = await this.runSingleAccount(acc, globalCfg, { manual, turbo: activeTurbo });
-          if (result) runResults.push(result);
+          if (result) {
+            runResults.push(result);
+            // 规则 1：每个账号跑完立刻推一条执行结果（含跳过原因）
+            if (reportSettings.accountRun) {
+              try {
+                const runElapsed = ((Date.now() - runStartedAt) / 1000).toFixed(1);
+                const { title, content } = buildAccountRunReport({
+                  account: acc,
+                  result,
+                  summary: this.computeSummary(),
+                  elapsedSec: Number(runElapsed)
+                });
+                await notifier.send(title, content);
+              } catch (pushError) {
+                logger.log('🔴', `账号 [${acc.name || acc.id}] 执行结果推送失败: ${pushError.message}`, '', acc.name || acc.id);
+              }
+            }
+          }
         } catch (e) {
           failures.push({ name: acc.name || acc.id, error: e.message });
           logger.log('🔴', `账号 [${acc.name || acc.id}] 执行异常，已跳过并继续下一个账号: ${e.message}`, '', acc.name || acc.id);
-          // 失败立刻推送
-          try {
-            await notifier.send(
-              `微软积分打卡异常 [${acc.name || acc.id}]`,
-              `账号 [${acc.name || acc.id}] 自动化打卡任务执行异常：\n❌ ${e.message}\n时间: ${new Date().toLocaleString('zh-CN', { hour12: false })}`
-            );
-          } catch {}
+          // 规则 2：运行失败立刻推送，正文必须写明原因
+          if (reportSettings.failure) {
+            try {
+              const { title, content } = buildAccountFailureReport({
+                accountName: acc.name || acc.id,
+                error: e
+              });
+              await notifier.send(title, content);
+            } catch (pushError) {
+              logger.log('🔴', `账号 [${acc.name || acc.id}] 失败推送未送达: ${pushError.message}`, '', acc.name || acc.id);
+            }
+          }
         } finally {
           const runStats = this.ensureAccountStats(acc.id);
           runStats.lastRunAt = runStartedAt;
@@ -3114,19 +3214,12 @@ export class TaskManager {
       logger.setAccountContext('');
       logger.log('🎉', summaryMsg);
 
-      // 推送规则：失败立刻推送（上面 catch 已发）；成功统一推送（全部账号满额后统一推一次总览，或手动全跑时推）
-      const todayKey = this.getTodayNum();
-      const allFinishedToday = allAccounts.length > 0 && allAccounts.every(acc => {
-        const st = this.ensureAccountStats(acc.id);
-        const tVals = Object.values(st.tasks || {});
-        return tVals.length > 0 && tVals.every(t => t.done || (t.max > 0 && t.progress >= t.max));
-      });
-
-      const shouldSendUnifiedReport = (!isSingleRun && manual) || (allFinishedToday && this.lastUnifiedReportDate !== todayKey);
-      if (shouldSendUnifiedReport) {
-        this.lastUnifiedReportDate = todayKey;
-        await notifier.send('微软积分每日打卡总览报告', summaryMsg);
-      }
+      // 推送规则（v1.10.22 起）：
+      //   1) 账号级结果 → 上面每个账号跑完即时推送
+      //   2) 失败告警   → 上面 catch 里即时推送（带原因）
+      //   3) 每日汇总   → 交给 scheduler 按 notify.reports.dailySummary.cron 定时推送
+      // 所以这里不再做「全部满额后顺手推一次总览」的隐式判断，
+      // 避免同一天既收到 cron 汇总又收到这条重复总览。
       return true;
     } catch (e) {
       logger.log('🔴', `任务执行过程发生异常: ${e.message}`);

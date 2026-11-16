@@ -1227,6 +1227,9 @@ function initUIEvents() {
   document.getElementById('btn-check-telegram')?.addEventListener('click', () => {
     window.checkTelegramConnection();
   });
+  document.getElementById('btn-test-notify-report')?.addEventListener('click', () => {
+    window.testNotifyReport();
+  });
 
   // 配置中心：切换账号编辑
   document.getElementById('cfg-account-select')?.addEventListener('change', (e) => {
@@ -3119,7 +3122,7 @@ let taskRunning = false;
 function refreshVersionPillTooltip() {
   const pill = document.getElementById('version-status-pill');
   if (!pill) return;
-  const current = updateInfo?.currentVersion || '1.10.21';
+  const current = updateInfo?.currentVersion || '1.10.22';
   const statusLine = taskRunning
     ? '🟦 系统状态：正在执行自动化任务打卡中…'
     : '🟢 系统状态：后台定时就绪中';
@@ -3174,8 +3177,8 @@ async function handleVersionCheckClick() {
     openEpicActionModal(
       '版本检查',
       failed
-        ? `当前运行版本 v${updateInfo?.currentVersion || '1.10.21'}，但无法连接 GitHub 检查更新。`
-        : `当前运行版本 v${updateInfo?.currentVersion || '1.10.21'} 已是最新版本。`,
+        ? `当前运行版本 v${updateInfo?.currentVersion || '1.10.22'}，但无法连接 GitHub 检查更新。`
+        : `当前运行版本 v${updateInfo?.currentVersion || '1.10.22'} 已是最新版本。`,
       ['获取远端版本', '比较版本号', failed ? '检查失败' : '确认无需更新'],
       3
     );
@@ -5626,6 +5629,13 @@ function setNotifyProxyStatus(kind, html) {
   el.innerHTML = html;
 }
 
+function setNotifyReportStatus(kind, html) {
+  const el = document.getElementById('test-notify-report-result');
+  if (!el) return;
+  el.className = `proxy-card-status${kind ? ` ${kind}` : ''}`;
+  el.innerHTML = html;
+}
+
 function populateSettingsForm() {
   if (!currentConfig) return;
   const c = currentConfig;
@@ -5700,6 +5710,22 @@ function populateSettingsForm() {
     if (input) input.checked = c.notify?.proxy?.channels?.[channel] === true;
   }
   setNotifyProxyStatus('', '');
+  // 推送规则开关（v1.10.22）：缺字段一律按开启回填，与后端 normalizeReportSettings 保持一致
+  const reportSettings = c.notify?.reports || {};
+  const setCheckbox = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = value !== false;
+  };
+  setCheckbox('cfg-notify-report-account-run', reportSettings.accountRun);
+  setCheckbox('cfg-notify-report-failure', reportSettings.failure);
+  setCheckbox('cfg-notify-report-daily-enabled', reportSettings.dailySummary?.enabled);
+  const dailyCronInput = document.getElementById('cfg-notify-report-daily-cron');
+  if (dailyCronInput) dailyCronInput.value = reportSettings.dailySummary?.cron || '0 22 * * *';
+  const reportResult = document.getElementById('test-notify-report-result');
+  if (reportResult) {
+    reportResult.className = 'proxy-card-status';
+    reportResult.textContent = '';
+  }
   const telegramCheck = document.getElementById('telegram-check-result');
   if (telegramCheck) {
     telegramCheck.className = 'proxy-card-status';
@@ -5930,6 +5956,14 @@ async function saveSettingsFromModal() {
         clientSecret: document.getElementById('cfg-notify-qq-secret').value.trim(),
         openId: document.getElementById('cfg-notify-qq-openid').value.trim(),
         groupOpenId: document.getElementById('cfg-notify-qq-group-openid').value.trim()
+      },
+      reports: {
+        accountRun: document.getElementById('cfg-notify-report-account-run')?.checked === true,
+        failure: document.getElementById('cfg-notify-report-failure')?.checked === true,
+        dailySummary: {
+          enabled: document.getElementById('cfg-notify-report-daily-enabled')?.checked === true,
+          cron: document.getElementById('cfg-notify-report-daily-cron')?.value.trim() || '0 22 * * *'
+        }
       }
     }
   };
@@ -6189,6 +6223,24 @@ window.testNotifyProxy = async function() {
     );
   } catch (e) {
     setNotifyProxyStatus('err', `❌ 测试请求失败：${escapeHtml(e.message)}`);
+  }
+};
+
+window.testNotifyReport = async function() {
+  setNotifyReportStatus('', '⏳ 正在生成并推送全天汇总...');
+  try {
+    const res = await fetch('/api/notify/report/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    }).then(r => r.json());
+    if (res.success) {
+      setNotifyReportStatus('ok', `✅ ${escapeHtml(res.message || '汇总已推送')}`);
+    } else {
+      setNotifyReportStatus('err', `❌ ${escapeHtml(res.message || '汇总推送失败')}`);
+    }
+  } catch (e) {
+    setNotifyReportStatus('err', `❌ 请求失败：${escapeHtml(e.message)}`);
   }
 };
 
