@@ -107,25 +107,6 @@ const baseAccountsStats = {
       search: { name: '必应 PC 搜索任务', progress: 60, max: 60, points: 60, unit: '分', icon: '🔍', done: true },
       dailySet: { name: '每日活动集 (Daily Set)', progress: 3, max: 3, points: 30, unit: '个', icon: '📅', done: true },
       promos: { name: '活动卡片与 Quiz 问答', progress: 2, max: 2, points: 15, unit: '项', icon: '🧩', done: true },
-      desktopApp: {
-        name: '桌面应用每周专属任务',
-        progress: 6,
-        max: 8,
-        points: 0,
-        unit: '个任务',
-        icon: '🖥️',
-        expiresText: '到期日期 3 天后',
-        available: true,
-        done: false,
-        stepLogs: [
-          { step: 1, at: Date.now() - 4 * 86400000, name: '搜索 1 次' },
-          { step: 2, at: Date.now() - 3 * 86400000, name: '搜索 2 次' },
-          { step: 3, at: Date.now() - 2 * 86400000, name: '搜索 3 次' },
-          { step: 4, at: Date.now() - 86400000, name: '搜索 4 次' },
-          { step: 5, at: Date.now() - 6 * 3600 * 1000, name: '搜索 5 次' },
-          { step: 6, at: Date.now() - 1 * 3600 * 1000, name: '搜索 6 次' }
-        ]
-      },
       monthlyQuest: {
         name: '十月必看五大亮点：服饰、玩具、手机、超值优惠和AI设备',
         progress: 2,
@@ -180,23 +161,6 @@ const baseAccountsStats = {
       search: { name: '必应 PC 搜索任务', progress: 42, max: 60, points: 42, unit: '分', icon: '🔍', done: false },
       dailySet: { name: '每日活动集 (Daily Set)', progress: 2, max: 3, points: 0, unit: '个', icon: '📅', done: false },
       promos: { name: '活动卡片与 Quiz 问答', progress: 1, max: 2, points: 8, unit: '项', icon: '🧩', done: false },
-      desktopApp: {
-        name: '桌面应用每周专属任务',
-        progress: 4,
-        max: 8,
-        points: 0,
-        unit: '个任务',
-        icon: '🖥️',
-        expiresText: '到期日期 3 天后',
-        available: true,
-        done: false,
-        stepLogs: [
-          { step: 1, at: Date.now() - 3 * 86400000 },
-          { step: 2, at: Date.now() - 2 * 86400000 },
-          { step: 3, at: Date.now() - 86400000 },
-          { step: 4, at: Date.now() - 5 * 3600 * 1000 }
-        ]
-      },
       monthlyQuest: {
         name: '十月必看五大亮点：服饰、玩具、手机、超值优惠和AI设备',
         progress: 1,
@@ -236,29 +200,7 @@ const baseAccountsStats = {
       read: { name: '新闻资讯自动阅读', progress: 30, max: 30, points: 30, unit: '篇', icon: '📖', done: true },
       search: { name: '必应 PC 搜索任务', progress: 60, max: 60, points: 60, unit: '分', icon: '🔍', done: true },
       dailySet: { name: '每日活动集 (Daily Set)', progress: 3, max: 3, points: 30, unit: '个', icon: '📅', done: true },
-      promos: { name: '活动卡片与 Quiz 问答', progress: 3, max: 3, points: 30, unit: '项', icon: '🧩', done: true },
-      desktopApp: {
-        name: '桌面应用每周专属任务',
-        progress: 8,
-        max: 8,
-        points: 20,
-        unit: '个任务',
-        icon: '🖥️',
-        expiresText: '本周已全部达成',
-        available: true,
-        done: true,
-        isPunchCard: true,
-        stepLogs: [
-          { step: 1, at: Date.now() - 7 * 86400000 },
-          { step: 2, at: Date.now() - 6 * 86400000 },
-          { step: 3, at: Date.now() - 5 * 86400000 },
-          { step: 4, at: Date.now() - 4 * 86400000 },
-          { step: 5, at: Date.now() - 3 * 86400000 },
-          { step: 6, at: Date.now() - 2 * 86400000 },
-          { step: 7, at: Date.now() - 86400000 },
-          { step: 8, at: Date.now() - 3 * 3600 * 1000 }
-        ]
-      }
+      promos: { name: '活动卡片与 Quiz 问答', progress: 3, max: 3, points: 30, unit: '项', icon: '🧩', done: true }
     }
   }
 };
@@ -331,7 +273,6 @@ for (let i = 6; i >= 0; i--) {
       { name: '必应 PC 搜索任务', icon: '🔍', points: 60 },
       { name: '每日活动集 (Daily Set)', icon: '📅', points: 30 },
       { name: '新闻资讯自动阅读', icon: '📖', points: 30 },
-      { name: '桌面应用每周专属任务', icon: '🖥️', points: 20 },
       { name: '移动端签到', icon: '📱', points: 10 }
     ]
   });

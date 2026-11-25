@@ -27,7 +27,6 @@ import {
   MOBILE_USER_AGENT,
   APP_USER_AGENT,
   APP_ID,
-  DESKTOP_APP_USER_AGENT,
   pcPageHeaders,
   pcXhrHeaders
 } from './fingerprint.js';
@@ -37,12 +36,6 @@ export const USER_AGENTS = {
   pc: PC_USER_AGENT,
   mobile: MOBILE_USER_AGENT,
   app: APP_USER_AGENT
-};
-
-export const DESKTOP_APP_HEADERS = {
-  'user-agent': DESKTOP_APP_USER_AGENT,
-  'X-MSRewards-App': '1',
-  'X-Rewards-Source': 'msrewards-desktop'
 };
 
 export const APP_CONFIG = {
@@ -288,11 +281,6 @@ export function buildQuestRouterStateTree(questId) {
     16
   ];
   return encodeURIComponent(JSON.stringify(tree));
-}
-
-export function weekdayFromOfferId(offerId = '') {
-  const match = String(offerId).match(/_(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)_/i);
-  return match ? match[1].toLowerCase() : '';
 }
 
 export { isBalanceMismatch } from './accountIdentity.js';
@@ -970,13 +958,6 @@ export class RewardsApi {
 
         // 动态解析官网「任务」区域全部打孔卡（自适应 1 个、2 个或多个）
         const quests = this.extractQuests(clean);
-        const desktopApp = quests.find(q => q.title.includes('桌面') || q.title.includes('RewardsApp')) || {
-          title: "桌面奖励应用每周专属任务",
-          progress: 0,
-          max: 8,
-          expiresText: '',
-          available: false
-        };
         const monthlyQuest = quests.find(q => /亮点|FY27|Monthly/i.test(q.title)) || null;
 
         // 印章进度提取 (如 8/12)
@@ -1016,7 +997,6 @@ export class RewardsApi {
           readMax,
           dailyOffer,
           todayDetails,
-          desktopApp,
           monthlyQuest,
           quests,
           specialActivities,
@@ -1124,12 +1104,14 @@ export class RewardsApi {
   extractQuests(cleanText) {
     const quests = [];
     const questIndexByKey = new Map();
-    const cards = this.extractQuestCards(cleanText).filter(card => card.title && card.max > 0);
+    const cards = this.extractQuestCards(cleanText)
+      .filter(card => card.title && card.max > 0)
+      // 桌面奖励应用专项任务已下线：官网即使仍下发，也一律忽略
+      .filter(card => !/桌面|rewardsapp/i.test(String(card.title || '')));
 
     const canonicalQuestKey = (title) => {
       const text = String(title || '').toLowerCase();
       if (/halloween|万圣节/.test(text)) return 'halloween';
-      if (/桌面|rewardsapp/.test(text)) return 'desktop';
       if (/亮点|fy27|monthly/.test(text)) return 'monthly';
       return `title:${text.replace(/\s+/g, '')}`;
     };
@@ -1152,12 +1134,10 @@ export class RewardsApi {
       }
 
       const ptsM = chunk.match(/\[\"[\+\"]*\",\"?(\d+)\"?\]/) || chunk.match(/\+(\d+)/);
-      const isDesktop = title.includes('桌面') || title.includes('RewardsApp');
-      const pts = ptsM ? parseInt(ptsM[1], 10) : (isDesktop ? 20 : 50);
+      const pts = ptsM ? parseInt(ptsM[1], 10) : 50;
 
       let icon = '🎯';
       if (title.includes('Halloween') || title.includes('万圣节')) icon = '🎃';
-      else if (isDesktop) icon = 'rewards-app';
       else if (title.includes('秋') || title.includes('亮点')) icon = '🍁';
 
       const key = canonicalQuestKey(title);
@@ -1499,9 +1479,6 @@ export class RewardsApi {
         if (!matched && questId.includes('Halloween')) {
           matched = allQuests.find(q => /Halloween|万圣节/i.test(q.title));
         }
-        if (!matched && questId.includes('RewardsApp')) {
-          matched = allQuests.find(q => /桌面|RewardsApp/i.test(q.title));
-        }
         if (!matched && questId.includes('BingMonthlyPC')) {
           matched = allQuests.find(q => /亮点|FY27|Monthly/i.test(q.title));
         }
@@ -1685,79 +1662,6 @@ export class RewardsApi {
       } catch (e) {
         logger.log('🟡', `Flight 卡片数据解析异常: ${e.message}`);
       }
-
-      // 2. 桌面客户端专属任务检测 (独家 70 积分/周)
-      try {
-        const questMatch = String(html).match(/href="(\/earn\/quest\/(WW_pcparent_RewardsApp_weekly_Exclusive[^"]+))"/i)
-          || String(html).match(/"(\/earn\/quest\/(WW_pcparent_RewardsApp_weekly_Exclusive[^"]+))"/i);
-        if (questMatch) {
-          const questUrl = 'https://rewards.bing.com' + questMatch[1];
-          const questHtml = await networkClient.request({
-            url: questUrl,
-            headers: DESKTOP_APP_HEADERS
-          });
-          if (questHtml) {
-            const qChunks = [];
-            const qPushRegex = /self\.__next_f\.push\(\[\d+,\s*"(.*?)"\]\)/gs;
-            let qm;
-            while ((qm = qPushRegex.exec(String(questHtml))) !== null) {
-              try { qChunks.push(JSON.parse(`"${qm[1]}"`)); } catch {}
-            }
-            const qText = qChunks.length > 0 ? qChunks.join('') : String(questHtml).replace(/\\"/g, '"');
-            const children = extractJsonObjectsWithKey(qText)
-              .filter(item => /^WW_pcchild\d+_/.test(String(item.offerId || '')));
-            const uniqueChildren = [...new Map(children.map(item => [item.offerId, item])).values()];
-            const parentQuest = this.extractQuests(String(html).replace(/\\"/g, '"').replace(/\\u0026/g, '&'))
-              .find(q => /桌面|RewardsApp/i.test(`${q.title || ''} ${q.questId || ''}`));
-            const completedCount = Number(parentQuest?.progress || 0);
-            const totalCount = Math.max(
-              Number(parentQuest?.max || 0),
-              uniqueChildren.length + completedCount
-            );
-            const lockedChildren = uniqueChildren.filter(item => (
-              item.isLocked === true || item.isDisabled === true
-            ));
-            const readyChildren = uniqueChildren.filter(item => (
-              item.isCompleted !== true
-              && item.isLocked !== true
-              && item.isDisabled !== true
-              && !!item.hash
-            ));
-
-            for (const qItem of readyChildren) {
-              logger.log('🖥️', `发现桌面端专享打卡任务: ${qItem.title || qItem.offerId}`);
-              pushCard({
-                title: `[桌面专享] ${qItem.title || qItem.name || qItem.offerId}`,
-                points: Number(qItem.points || 10),
-                offerId: qItem.offerId,
-                hash: qItem.hash,
-                kind: 'desktop_app',
-                category: 'desktop',
-                destination: qItem.destination || qItem.href || '',
-                url: questUrl,
-                parentQuestId: questMatch[1].match(/WW_pcparent_[^/?#]+/)?.[0] || '',
-                unlockDay: weekdayFromOfferId(qItem.offerId),
-                deploymentId: this.getDeploymentId(questHtml)
-              });
-            }
-
-            if (uniqueChildren.length > 0 || totalCount > 0) {
-              const nextDay = weekdayFromOfferId(lockedChildren[0]?.offerId);
-              const nextDayLabel = {
-                monday: '周一', tuesday: '周二', wednesday: '周三', thursday: '周四',
-                friday: '周五', saturday: '周六', sunday: '周日'
-              }[nextDay] || nextDay;
-              const nextHint = nextDayLabel ? `，下一项 ${nextDayLabel} 解锁` : '';
-              logger.log(
-                '🖥️',
-                `桌面每周专属任务：已完成 ${completedCount}/${totalCount}，本次可打卡 ${readyChildren.length} 项，锁定 ${lockedChildren.length} 项${nextHint}`
-              );
-            }
-          }
-        }
-      } catch (eQuest) {
-        logger.log('🟡', `桌面专属任务解析跳过: ${eQuest.message}`);
-      }
     } catch (e) {
       logger.log('🔴', `扫描活动卡片失败: ${e.message}`);
     }
@@ -1844,14 +1748,13 @@ export class RewardsApi {
           || (card.deploymentId && card.deploymentId !== this.cachedDeploymentId)) {
           pageHtml = await networkClient.request({
             url,
-            headers: card.kind === 'desktop_app' ? DESKTOP_APP_HEADERS : pcPageHeaders()
+            headers: pcPageHeaders()
           }).catch(() => '');
           this.getDeploymentId(pageHtml);
           nextAction = await this.getNextActionHash(pageHtml, url);
         }
         const headers = {
-          ...(card.kind === 'desktop_app' ? DESKTOP_APP_HEADERS : {}),
-          'accept': 'text/x-component',
+                    'accept': 'text/x-component',
           'content-type': 'text/plain;charset=UTF-8',
           'next-action': nextAction,
           'referer': referer,
@@ -1887,8 +1790,7 @@ export class RewardsApi {
               method: 'POST',
               url,
               headers: {
-                ...(card.kind === 'desktop_app' ? DESKTOP_APP_HEADERS : {}),
-                accept: 'text/x-component',
+                                accept: 'text/x-component',
                 'content-type': 'text/plain;charset=UTF-8',
                 'next-action': nextAction,
                 referer,
@@ -1909,8 +1811,6 @@ export class RewardsApi {
       }
     }
 
-    // 桌面 App 专属任务必须由 Server Action 明确确认，不能走普通网页上报兜底。
-    if (card.kind === 'desktop_app') return false;
 
     // 策略 2: 每日活动目标链接搜索上报
     if (card.destination && card.destination.startsWith('http')) {

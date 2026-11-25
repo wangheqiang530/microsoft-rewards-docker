@@ -22,7 +22,7 @@
           <!-- 版本与状态复合胶囊 (结合更新检测与状态展示) -->
           <div class="version-status-pill status-idle" id="version-status-pill" title="系统状态: 后台定时就绪中 | 点击检查版本更新">
             <span class="status-dot"></span>
-            <span class="version-label" id="version-label">v1.10.22</span>
+            <span class="version-label" id="version-label">v1.10.23</span>
             <span class="update-indicator" id="update-indicator" style="display: none;">
               <span class="update-icon">🚀</span>
               <span class="update-text" id="update-text">有更新</span>
@@ -579,7 +579,7 @@
         <div class="step-content" id="step-3">
           <div id="guide-cookie-network-summary" class="guide-network-summary"></div>
           <h3 class="step-title">第三步：配置必应网页端 Cookie</h3>
-          <p class="step-desc">该 Cookie 用于「必应 PC 搜索」、「每日活动集 Daily Set」与「桌面专享任务」。</p>
+          <p class="step-desc">该 Cookie 用于「必应 PC 搜索」与「每日活动集 Daily Set」。</p>
           <div id="guide-vnc-cookie-summary" class="step-action-box" style="display: none;">
             <p>Cookie 已通过内置浏览器获取。点击下方保存即可完成账号创建。</p>
             <div id="guide-vnc-cookie-status" class="hint-msg"></div>
@@ -705,7 +705,7 @@
               <button type="button" id="btn-test-modal-cookie" class="btn btn-secondary btn-sm" title="测试该 Cookie 有效性与余额">测试有效性</button>
               <button type="button" id="btn-clear-modal-cookie" class="btn btn-danger-soft btn-sm" title="清空该账号保存的 Cookie">清空</button>
             </div>
-            <small class="form-hint" id="cfg-cookie-hint">PC 搜索、每日活动集与桌面任务必备；内容默认隐藏，不会明文展示</small>
+            <small class="form-hint" id="cfg-cookie-hint">PC 搜索与每日活动集必备；内容默认隐藏，不会明文展示</small>
             <div id="cfg-cookie-test-result" style="margin-top: 6px; font-size: 12px;"></div>
           </div>
 
@@ -798,7 +798,6 @@
             <label class="checkbox-label"><input type="checkbox" id="cfg-task-search"> 必应 PC 搜索任务 (会员 15 / 银牌 30 / 金牌 60 分)</label>
             <label class="checkbox-label"><input type="checkbox" id="cfg-task-promos"> 活动卡片与 Quiz 自动答题</label>
             <label class="checkbox-label"><input type="checkbox" id="cfg-task-dailyset"> 每日连续活动集 (Daily Set)</label>
-            <label class="checkbox-label"><input type="checkbox" id="cfg-task-desktop"> 桌面端专属每周打孔卡 (70分/周)</label>
             <label class="checkbox-label"><input type="checkbox" id="cfg-task-keep"> 全部完成后，手动重跑仍完整执行（定时任务每账号每天只排一次）</label>
           </div>
           <hr class="divider">

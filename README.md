@@ -3,7 +3,7 @@
 **把微软积分日常，交给一台不休息的小容器。**
 基于 Docker + WebUI，适合 NAS、VPS 和家用服务器。多账号管理、每日任务、浏览器登录、代理与运行计划，都在一个网页里完成。
 
-[![Version](https://img.shields.io/badge/version-v1.10.22-blue.svg)](https://github.com/wangheqiang530/microsoft-rewards-docker/releases/tag/v1.10.22)
+[![Version](https://img.shields.io/badge/version-v1.10.23-blue.svg)](https://github.com/wangheqiang530/microsoft-rewards-docker/releases/tag/v1.10.22)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com/)
 [![Node.js](https://img.shields.io/badge/Node.js-20+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
@@ -130,7 +130,6 @@ docker run -d \
 | 新闻阅读 | 自动阅读每日资讯任务 |
 | 必应 PC 搜索 | 按官网实际配额执行，连续不涨分时自动停止 |
 | Daily Set | 自动完成每日活动集 |
-| 桌面专属任务 | 完成桌面端每周打孔卡 |
 | 任务区打孔卡 | 自动推进当前可执行任务，并回读官网进度 |
 | 浏览器中的奖励 | 处理官网实际返回的活动卡片 |
 | 额外积分 | 任务收尾时检查并领取可领取的额外积分 |

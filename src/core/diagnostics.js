@@ -282,7 +282,6 @@ function buildConfigSummary(config = {}) {
       read: config.tasks?.read !== false,
       search: config.tasks?.search !== false,
       promos: config.tasks?.promos !== false,
-      desktopApp: config.tasks?.desktopApp !== false,
       dailySet: config.tasks?.dailySet !== false,
       searchEngineMode: config.tasks?.searchEngineMode || '',
       searchIntervalSec: Number(config.tasks?.searchIntervalSec || 0),

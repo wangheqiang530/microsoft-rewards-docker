@@ -48,10 +48,6 @@ export const APP_ID = `SAAndroid/${APP_VERSION}`;
 export const APP_USER_AGENT =
   `Mozilla/5.0 (Linux; Android 16; Redmi K20 Pro Build/BP4A.251205.006; ) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/144.0.7559.132 Mobile Safari/537.36 BingSapphire/${APP_VERSION}`;
 
-/** 桌面奖励客户端 UA */
-export const DESKTOP_APP_USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) MSRewards/Desktop/1.4.56';
-
 /** Sec-CH-UA 请求头，与上面的 UA 版本严格对应 */
 export const SEC_CH_UA =
   `"Google Chrome";v="${CHROME_MAJOR}", "Chromium";v="${CHROME_MAJOR}", "Not?A_Brand";v="24"`;

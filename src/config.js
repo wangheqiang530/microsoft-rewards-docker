@@ -67,7 +67,6 @@ const DEFAULT_CONFIG = {
     read: true,
     search: true,
     promos: true,
-    desktopApp: true,
     dailySet: true,
     searchIntervalSec: 60,  // 全局搜索节奏：每次搜索基础间隔（秒）
     searchJitterSec: 60,    // 全局搜索节奏：每次随机浮动（秒，只会延后）

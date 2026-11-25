@@ -1797,7 +1797,7 @@ function updateCookieHint(hasStoredSecret = null) {
     hint.textContent = '✅ 已配置 Cookie（内容已隐藏，点击右侧眼睛按钮可查看或重新粘贴）';
     hint.style.color = '#34D399';
   } else {
-    hint.textContent = 'PC 搜索、每日活动集与桌面任务必备；内容默认隐藏，不会明文展示';
+    hint.textContent = 'PC 搜索与每日活动集必备；内容默认隐藏，不会明文展示';
     hint.style.color = '';
   }
 }
@@ -3122,7 +3122,7 @@ let taskRunning = false;
 function refreshVersionPillTooltip() {
   const pill = document.getElementById('version-status-pill');
   if (!pill) return;
-  const current = updateInfo?.currentVersion || '1.10.22';
+  const current = updateInfo?.currentVersion || '1.10.23';
   const statusLine = taskRunning
     ? '🟦 系统状态：正在执行自动化任务打卡中…'
     : '🟢 系统状态：后台定时就绪中';
@@ -3177,8 +3177,8 @@ async function handleVersionCheckClick() {
     openEpicActionModal(
       '版本检查',
       failed
-        ? `当前运行版本 v${updateInfo?.currentVersion || '1.10.22'}，但无法连接 GitHub 检查更新。`
-        : `当前运行版本 v${updateInfo?.currentVersion || '1.10.22'} 已是最新版本。`,
+        ? `当前运行版本 v${updateInfo?.currentVersion || '1.10.23'}，但无法连接 GitHub 检查更新。`
+        : `当前运行版本 v${updateInfo?.currentVersion || '1.10.23'} 已是最新版本。`,
       ['获取远端版本', '比较版本号', failed ? '检查失败' : '确认无需更新'],
       3
     );
@@ -4201,8 +4201,7 @@ function formatPunchCardTooltip(t) {
       sign: 30,
       read: 40,
       promos: 50,
-      browserExtension: 55,
-      desktopApp: 60
+      browserExtension: 55
     };
 
     const tasksList = Object.entries(stats.tasks || {});
@@ -4227,10 +4226,10 @@ function formatPunchCardTooltip(t) {
     let progressLabel = `进度: ${t.progress || 0} / ${t.max || 1} ${t.unit || ''}`;
     let progPercent = t.max > 0 ? Math.min(100, Math.round((t.progress / t.max) * 100)) : (isDone ? 100 : 0);
 
-    const isPunchCard = t.isPunchCard || key === 'desktopApp' || key === 'monthlyQuest' || key.startsWith('quest_');
+    const isPunchCard = t.isPunchCard || key === 'monthlyQuest' || key.startsWith('quest_');
     if (isPunchCard) {
       const p = Number(t.progress || 0);
-      const m = Number(t.max || (key === 'desktopApp' ? 8 : (key === 'quest_halloween' ? 6 : 5))) || 1;
+      const m = Number(t.max || (key === 'quest_halloween' ? 6 : 5)) || 1;
       progPercent = Math.min(100, Math.round((p / m) * 100));
       const typeLabel = t.name?.includes('每周') ? '每周打孔卡' : (t.name?.includes('月') ? '每月打孔卡' : '活动打孔卡');
       if (isDone) {
@@ -4242,7 +4241,7 @@ function formatPunchCardTooltip(t) {
         subtext = t.expiresText ? `${t.expiresText} · ${typeLabel} (悬停查看记录)` : `${typeLabel} (悬停查看记录)`;
       }
       progressLabel = `进度: ${p} / ${m} 个任务`;
-      pointsBadge = `+${t.points || (key === 'desktopApp' ? 20 : 50)} 积分`;
+      pointsBadge = `+${t.points || 50} 积分`;
       card.setAttribute('data-tip', formatPunchCardTooltip(t));
       card.style.cursor = 'help';
     }
@@ -4301,9 +4300,7 @@ function formatPunchCardTooltip(t) {
     }
 
     // 图标处理：所有 rewards app 的任务，图表换成 rewards app 的官方矢量图标
-    const isRewardsApp = key === 'desktopApp'
-      || /rewards\s*app/i.test(displayName || '')
-      || (displayName || '').includes('桌面应用')
+    const isRewardsApp = /rewards\s*app/i.test(displayName || '')
       || t.icon === 'rewards-app';
     const iconHtml = isRewardsApp ? getRewardsAppOfficialIconHtml() : escapeHtml(t.icon || '📌');
 
@@ -5668,7 +5665,6 @@ function populateSettingsForm() {
   document.getElementById('cfg-task-search').checked = c.tasks?.search !== false;
   document.getElementById('cfg-task-promos').checked = c.tasks?.promos !== false;
   document.getElementById('cfg-task-dailyset').checked = c.tasks?.dailySet !== false;
-  document.getElementById('cfg-task-desktop').checked = c.tasks?.desktopApp !== false;
   document.getElementById('cfg-task-keep').checked = c.tasks?.keepRunning !== false;
   const gpuEl = document.getElementById('cfg-browser-gpu');
   if (gpuEl) gpuEl.checked = c.browser?.useGpu === true;
@@ -5919,7 +5915,6 @@ async function saveSettingsFromModal() {
       search: document.getElementById('cfg-task-search').checked,
       promos: document.getElementById('cfg-task-promos').checked,
       dailySet: document.getElementById('cfg-task-dailyset').checked,
-      desktopApp: document.getElementById('cfg-task-desktop').checked,
       keepRunning: document.getElementById('cfg-task-keep').checked,
       searchIntervalSec: searchRhythm.interval,
       searchJitterSec: searchRhythm.jitter,
@@ -6405,7 +6400,7 @@ async function runSingleAccountDiagnosis(accountId) {
       pillCookie.className = 'diag-status-pill pill-ok';
       pillCookie.innerText = '已登录正常';
       detailCookie.innerHTML = `
-        <div>状态：✅ 身份认证有效，可执行 PC 搜索、每日活动集与桌面专属任务</div>
+        <div>状态：✅ 身份认证有效，可执行 PC 搜索与每日活动集</div>
         <div style="margin-top:4px; color:#E2E8F0;">${escapeHtml(cookie.message || '')}</div>
       `;
     } else {

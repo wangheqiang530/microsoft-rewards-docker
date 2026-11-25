@@ -173,7 +173,6 @@ test('TaskManager recordPunchCardSteps 不把未确认的点击计入官网进�
 test('getRewardsInfo 动态解析多打孔卡（包含万圣节 A 50-point Halloween treat）', async () => {
   const flightHtml = `
     <script>self.__next_f.push([1,"\\"text-globalBody2Strong\\",\\"children\\":\\"A 50-point Halloween treat\\",\\"b\\":{\\"children\\":\\"0/6 个任务\\"}"])</script>
-    <script>self.__next_f.push([1,"\\"text-globalBody2Strong\\",\\"children\\":\\"桌面奖励应用每周专属任务\\",\\"b\\":{\\"children\\":\\"5/8 个任务\\"}"])</script>
     <script>self.__next_f.push([1,"\\"text-globalBody2Strong\\",\\"children\\":\\"十月必看五大亮点：服饰、玩具、手机、超值优惠和AI设备\\",\\"b\\":{\\"children\\":\\"3/5 个任务\\"}"])</script>
   `;
   const origRequest = networkClient.request;
@@ -184,7 +183,7 @@ test('getRewardsInfo 动态解析多打孔卡（包含万圣节 A 50-point Hallo
   try {
     const info = await rewardsApi.getRewardsInfo(1);
     assert.ok(Array.isArray(info.quests), '必须返回全量 quests 数组');
-    assert.equal(info.quests.length, 3, '应解析出全部 3 个打孔卡任务');
+    assert.equal(info.quests.length, 2, '应解析出全部 2 个打孔卡任务');
     const h = info.quests.find(q => q.title.includes('Halloween'));
     assert.ok(h, '必须包含 Halloween 打孔卡');
     assert.equal(h.max, 6);
@@ -201,11 +200,10 @@ test('TaskManager 根据官网动态增删打孔卡卡片', () => {
   const accCfg = { id: accId, name: '动态卡片测试账号', cookie: 'MOCK_COOKIE' };
   tm.ensureAccountStats(accId);
 
-  // 1. 官网有 3 个打孔卡：Desktop, Monthly, Halloween
+  // 1. 官网有 2 个打孔卡：Monthly, Halloween
   const mockInfo = {
     todayPoints: 50,
     quests: [
-      { title: '桌面奖励应用每周专属任务', progress: 4, max: 8, points: 20 },
       { title: '十月必看五大亮点', progress: 2, max: 5, points: 50 },
       { title: 'A 50-point Halloween treat', progress: 1, max: 6, points: 50, icon: '🎃' }
     ]
@@ -220,13 +218,13 @@ test('TaskManager 根据官网动态增删打孔卡卡片', () => {
   return tm.syncAccountOfficialStatus(accCfg, { owned: true }).then(() => {
     const st = tm.ensureAccountStats(accId);
     const punchCards = Object.values(st.tasks).filter(t => t.isPunchCard);
-    assert.equal(punchCards.length, 3, '应动态生成 3 个打孔卡');
+    assert.equal(punchCards.length, 2, '应动态生成 2 个打孔卡');
     assert.ok(st.tasks.quest_halloween, '应包含万圣节打孔卡');
     assert.equal(st.tasks.quest_halloween.icon, '🎃');
 
     // 2. 模拟万圣节任务活动结束后官网只有 1 个任务
     mockInfo.quests = [
-      { title: '桌面奖励应用每周专属任务', progress: 8, max: 8, points: 20 }
+      { title: '十月必看五大亮点', progress: 2, max: 5, points: 50 }
     ];
 
     return tm.syncAccountOfficialStatus(accCfg, { owned: true }).then(() => {
@@ -234,7 +232,8 @@ test('TaskManager 根据官网动态增删打孔卡卡片', () => {
       const punchCardsAfter = Object.values(stAfter.tasks).filter(t => t.isPunchCard);
       assert.equal(punchCardsAfter.length, 1, '下线活动应自动移除，只保留 1 个打孔卡');
       assert.equal(stAfter.tasks.quest_halloween, undefined, '万圣节卡片应已自动清除');
-      assert.equal(stAfter.tasks.desktopApp.done, true);
+      assert.ok(stAfter.tasks.monthlyQuest, '月度打孔卡应继续保留');
+      assert.equal(stAfter.tasks.monthlyQuest.progress, 2);
     });
   }).finally(() => {
     rewardsApi.getRewardsInfo = origGetRewards;
@@ -291,7 +290,6 @@ test('官网打孔卡列表瞬时为空时，不得误删已有打孔卡（防�
   const mockInfo = {
     todayPoints: 50,
     quests: [
-      { title: '桌面奖励应用每周专属任务', progress: 4, max: 8, points: 20 },
       { title: '十月必看五大亮点', progress: 2, max: 5, points: 50 },
       { title: 'A 50-point Halloween treat', progress: 1, max: 6, points: 50 }
     ]

@@ -390,7 +390,6 @@ test('完整账号流程签到成功后不会被 signSuccess 作用域异常中�
         read: false,
         appPromotions: false,
         dailySet: false,
-        desktopApp: false,
         promos: false,
         search: false
       }
